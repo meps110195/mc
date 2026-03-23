@@ -1,0 +1,1807 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麥塊 - 殭屍生存模式</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255, 255, 255, 0.8);
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        #blocker {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 20;
+        }
+        #blocker h1 { font-size: 3rem; margin-bottom: 10px; text-shadow: 2px 2px 0 #000; }
+        #blocker p { font-size: 1.2rem; text-shadow: 1px 1px 0 #000; }
+
+        /* UI 層與受傷特效 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: white;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+        }
+        #timer-display { font-size: 28px; margin-bottom: 5px; }
+        #health-bar { font-size: 24px; }
+        
+        /* 右上角天數計數器 */
+        #top-right-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            text-align: right;
+            color: white;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+        }
+        #day-counter { font-size: 32px; }
+
+        /* 快捷列 (Hotbar) */
+        #hotbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .slot {
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #555;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 5px;
+            text-shadow: 1px 1px 0 #000;
+        }
+        .slot.active {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.4);
+            transform: scale(1.1);
+        }
+        .slot-num { color: #ccc; font-size: 11px; margin-top: 5px; }
+
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #ff0000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            z-index: 15;
+        }
+        
+        #respawn-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(100, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 30;
+        }
+        #respawn-screen h1 { font-size: 4rem; color: #ff5555; text-shadow: 3px 3px 0 #000; margin-bottom: 20px; }
+        
+        .btn {
+            background: #4CAF50; color: white; border: 2px solid #fff;
+            padding: 15px 30px; font-size: 24px; cursor: pointer;
+            border-radius: 8px; font-weight: bold; transition: 0.2s;
+        }
+        .btn:hover { background: #45a049; transform: scale(1.05); }
+
+    </style>
+    
+    <!-- 引入 Three.js 與 PointerLockControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+    <div id="damage-overlay"></div>
+    
+    <div id="ui-layer">
+        <div id="timer-display">☀️ 白天 02:00</div>
+        <div id="health-bar">❤️❤️❤️❤️❤️❤️❤️❤️❤️❤️</div>
+    </div>
+
+    <!-- 新增：右上角天數計數器 -->
+    <div id="top-right-ui">
+        <div id="day-counter">第 1 天</div>
+    </div>
+
+    <!-- 新增：方塊快捷列 -->
+    <div id="hotbar">
+        <div class="slot active" id="slot-1" data-type="wood">🪵木頭<div class="slot-num">[1]</div></div>
+        <div class="slot" id="slot-2" data-type="dirt">🟫泥土<div class="slot-num">[2]</div></div>
+        <div class="slot" id="slot-3" data-type="leaves">🌿樹葉<div class="slot-num">[3]</div></div>
+        <div class="slot" id="slot-4" data-type="grass">🟩草地<div class="slot-num">[4]</div></div>
+    </div>
+
+    <div id="blocker">
+        <h1>麥塊</h1>
+        <p>點擊畫面開始遊戲</p>
+        <p>W A S D 或 方向鍵 移動 | 空白鍵 跳躍 | 左鍵 破壞/攻擊 | 右鍵 放置方塊</p>
+        <p>數字鍵 1-4 切換方塊</p>
+    </div>
+
+    <div id="respawn-screen">
+        <h1>你死掉了！</h1>
+        <button class="btn" id="btn-respawn">重新復活</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        let camera, scene, renderer, controls;
+        let raycaster;
+        const objects = []; 
+        const blockMap = new Map(); 
+        const houseCenters = []; 
+        
+        // 效能優化：共用幾何體
+        const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+        const zombieGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+        const pigGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7); 
+        
+        // --- 遊戲系統變數 (日夜、生命、殭屍) ---
+        let hemisphereLight, dirLight;
+        let isDay = true;
+        let timeRemaining = 120; // 白天 120 秒，晚上 180 秒
+        let lastDisplayedSeconds = -1;
+        let playerHealth = 10;
+        let isDead = false;
+        let invulnerableTime = 0;
+        let dayCount = 1; // 記錄第幾天
+        
+        const zombies = [];
+        let zombieMats;
+        const animals = []; 
+        let pigMats; 
+        let dayColor = new THREE.Color(0x87CEEB);
+        let nightColor = new THREE.Color(0x050515);
+
+        // 物理與移動狀態
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        let moveForward = false; let moveBackward = false;
+        let moveLeft = false; let moveRight = false;
+        let canJump = false;
+        let prevTime = performance.now();
+
+        // 材質與當前選擇的方塊
+        const materials = {};
+        let currentBlockType = 'wood'; 
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = dayColor; 
+            scene.fog = new THREE.Fog(dayColor, 20, 60);
+
+            hemisphereLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+            hemisphereLight.position.set(0.5, 1, 0.75);
+            scene.add(hemisphereLight);
+
+            dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(20, 40, 20);
+            scene.add(dirLight);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            controls = new PointerLockControls(camera, document.body);
+            controls.getObject().position.set(0, 10, 0); // 出生點
+            scene.add(controls.getObject());
+
+            const blocker = document.getElementById('blocker');
+            blocker.addEventListener('click', () => { if(!isDead) controls.lock(); });
+            controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+            controls.addEventListener('unlock', () => { if(!isDead) blocker.style.display = 'flex'; });
+
+            document.getElementById('btn-respawn').addEventListener('click', respawn);
+            updateHealthUI();
+            updateDayCounter();
+
+            setupMaterials();
+            generateWorld();
+            buildHouse(0, 0); // 在原點蓋一棟房子作為安全區
+
+            raycaster = new THREE.Raycaster();
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousedown', onDocumentMouseDown);
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function setupMaterials() {
+            const createCanvasTexture = (renderFn) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 16; canvas.height = 16;
+                const ctx = canvas.getContext('2d');
+                renderFn(ctx);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                return tex;
+            };
+
+            const noise = (ctx, baseColor, vary) => {
+                for(let i=0; i<16; i++) {
+                    for(let j=0; j<16; j++) {
+                        let c = baseColor.map(v => Math.max(0, Math.min(255, v + (Math.random()-0.5)*vary)));
+                        ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+                        ctx.fillRect(i, j, 1, 1);
+                    }
+                }
+            };
+
+            const texDirt = createCanvasTexture(ctx => noise(ctx, [92, 64, 51], 20));
+            const texGrassTop = createCanvasTexture(ctx => noise(ctx, [76, 154, 42], 20));
+            const texGrassSide = createCanvasTexture(ctx => {
+                noise(ctx, [92, 64, 51], 20); 
+                ctx.fillStyle = '#4C9A2A'; 
+                ctx.fillRect(0,0,16,4);
+                for(let i=0;i<16;i++) if(Math.random()>0.5) ctx.fillRect(i,4,1,1);
+            });
+            const texWood = createCanvasTexture(ctx => {
+                ctx.fillStyle='#8B5A2B'; ctx.fillRect(0,0,16,16);
+                ctx.fillStyle='#6B3A0B'; ctx.fillRect(0,4,16,1); ctx.fillRect(0,10,16,1);
+            });
+            const texLeaves = createCanvasTexture(ctx => {
+                noise(ctx, [34, 139, 34], 30);
+            });
+            const texZombieFace = createCanvasTexture(ctx => {
+                noise(ctx, [30, 89, 40], 10);
+                ctx.fillStyle = '#000000'; ctx.fillRect(2,4,4,4); ctx.fillRect(10,4,4,4); ctx.fillRect(4,10,8,2);
+            });
+            const texZombieSkin = createCanvasTexture(ctx => noise(ctx, [30, 89, 40], 10));
+            zombieMats = [
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
+                new THREE.MeshLambertMaterial({ map: texZombieFace, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 })
+            ];
+
+            const texPigFace = createCanvasTexture(ctx => {
+                noise(ctx, [255, 182, 193], 10);
+                ctx.fillStyle = '#000000'; ctx.fillRect(4,6,2,2); ctx.fillRect(10,6,2,2); 
+                ctx.fillStyle = '#ff88aa'; ctx.fillRect(6,10,4,3); 
+            });
+            const texPigSkin = createCanvasTexture(ctx => noise(ctx, [255, 182, 193], 10));
+            pigMats = [
+                new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
+                new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
+                new THREE.MeshLambertMaterial({ map: texPigFace }), new THREE.MeshLambertMaterial({ map: texPigSkin })
+            ];
+
+            materials.dirt = new THREE.MeshLambertMaterial({ map: texDirt });
+            materials.grass = [
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassTop }),
+                materials.dirt,
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassSide })
+            ];
+            materials.wood = new THREE.MeshLambertMaterial({ map: texWood });
+            materials.leaves = new THREE.MeshLambertMaterial({ map: texLeaves, transparent: true, opacity: 0.9 });
+        }
+
+        function addBlock(x, y, z, mat, type='block') {
+            const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+            if (blockMap.has(key)) return; 
+            
+            const mesh = new THREE.Mesh(blockGeo, mat);
+            mesh.position.set(x, y, z);
+            mesh.userData.type = type;
+            mesh.name = key;
+            scene.add(mesh);
+            objects.push(mesh);
+            blockMap.set(key, mesh);
+        }
+
+        function removeBlock(mesh) {
+            scene.remove(mesh);
+            const idx = objects.indexOf(mesh);
+            if(idx > -1) objects.splice(idx, 1);
+            if(mesh.name) blockMap.delete(mesh.name);
+            
+            if (mesh.userData.type === 'zombie') {
+                const zIdx = zombies.indexOf(mesh);
+                if(zIdx > -1) zombies.splice(zIdx, 1);
+            } else if (mesh.userData.type === 'animal') {
+                const aIdx = animals.indexOf(mesh);
+                if(aIdx > -1) animals.splice(aIdx, 1);
+            }
+        }
+
+        function generateWorld() {
+            for (let x = -30; x <= 30; x++) {
+                for (let z = -30; z <= 30; z++) {
+                    let h = Math.floor(Math.sin(x/8)*3 + Math.cos(z/8)*3);
+                    
+                    for (let y = h - 1; y <= h; y++) {
+                        let mat = (y === h && y >= 0) ? materials.grass : materials.dirt;
+                        addBlock(x, y, z, mat);
+                    }
+
+                    if (h >= 0 && Math.random() < 0.03 && (Math.abs(x) > 6 || Math.abs(z) > 6)) {
+                        generateTree(x, h + 1, z);
+                    }
+                }
+            }
+
+            let housesBuilt = 1; 
+            let attempts = 0;
+            while (housesBuilt < 5 && attempts < 200) {
+                let cx = Math.floor((Math.random() - 0.5) * 46); 
+                let cz = Math.floor((Math.random() - 0.5) * 46);
+                let baseY = Math.floor(Math.sin(cx/8)*3 + Math.cos(cz/8)*3);
+                
+                if (baseY >= 0 && Math.hypot(cx, cz) > 8) {
+                    buildHouse(cx, cz);
+                    housesBuilt++;
+                }
+                attempts++;
+            }
+            spawnAnimals(8); 
+        }
+
+        function generateTree(x, baseY, z) {
+            for(let y=0; y<4; y++) addBlock(x, baseY+y, z, materials.wood);
+            for(let lx = x-2; lx <= x+2; lx++) {
+                for(let lz = z-2; lz <= z+2; lz++) {
+                    for(let ly = baseY+2; ly <= baseY+4; ly++) {
+                        if (lx===x && lz===z && ly<=baseY+3) continue; 
+                        if (Math.abs(lx-x)===2 && Math.abs(lz-z)===2 && Math.random()>0.5) continue; 
+                        addBlock(lx, ly, lz, materials.leaves);
+                    }
+                }
+            }
+            addBlock(x, baseY+5, z, materials.leaves);
+        }
+
+        function buildHouse(cx, cz) {
+            houseCenters.push({x: cx, z: cz});
+            let baseY = Math.floor(Math.sin(cx/8)*3 + Math.cos(cz/8)*3) + 1;
+            
+            for(let x = cx - 3; x <= cx + 3; x++) {
+                for(let z = cz - 3; z <= cz + 3; z++) {
+                    for(let y = baseY; y <= baseY + 6; y++) {
+                        const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+                        if (blockMap.has(key)) removeBlock(blockMap.get(key));
+                    }
+                    const floorKey = `${Math.round(x)},${Math.round(baseY-1)},${Math.round(z)}`;
+                    if (!blockMap.has(floorKey)) {
+                        addBlock(x, baseY - 1, z, materials.dirt);
+                    }
+                }
+            }
+
+            for(let x = cx - 3; x <= cx + 3; x++) {
+                for(let z = cz - 3; z <= cz + 3; z++) {
+                    addBlock(x, baseY, z, materials.wood); 
+                    if (x === cx - 3 || x === cx + 3 || z === cz - 3 || z === cz + 3) {
+                        addBlock(x, baseY+1, z, materials.wood); 
+                        addBlock(x, baseY+2, z, materials.wood);
+                        addBlock(x, baseY+3, z, materials.wood);
+                    }
+                    addBlock(x, baseY+4, z, materials.wood); 
+                }
+            }
+            const doorKey1 = `${cx},${baseY+1},${cz+3}`;
+            const doorKey2 = `${cx},${baseY+2},${cz+3}`;
+            if(blockMap.has(doorKey1)) removeBlock(blockMap.get(doorKey1));
+            if(blockMap.has(doorKey2)) removeBlock(blockMap.get(doorKey2));
+
+            // 門口的小台階（稍微加寬，更好走）
+            addBlock(cx, baseY, cz + 4, materials.wood);
+            addBlock(cx + 1, baseY, cz + 4, materials.wood);
+            addBlock(cx - 1, baseY, cz + 4, materials.wood);
+
+            // 側邊實心雙寬樓梯（旁邊多一格，且下方填滿更像真實樓梯）
+            for (let step = 0; step <= 4; step++) {
+                let zPos = cz + 3 - step;
+                let stepY = baseY + step;
+                
+                // 為了不讓樓梯懸空，把該階梯下方到地面的方塊都填滿
+                for (let y = baseY; y <= stepY; y++) {
+                    addBlock(cx + 4, y, zPos, materials.wood); // 原本的樓梯位置
+                    addBlock(cx + 5, y, zPos, materials.wood); // 旁邊再多一格
+                }
+            }
+        }
+
+        function isProtectedArea(x, z) {
+            for (const house of houseCenters) {
+                if (Math.abs(x - house.x) <= 6 && Math.abs(z - house.z) <= 6) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateHealthUI() {
+            let hearts = "";
+            for(let i=0; i<10; i++) {
+                if (i < playerHealth) hearts += "❤️";
+                else hearts += "🖤";
+            }
+            document.getElementById('health-bar').innerText = hearts;
+        }
+
+        function updateDayCounter() {
+            document.getElementById('day-counter').innerText = isDay ? `第 ${dayCount} 天` : `第 ${dayCount} 晚`;
+        }
+
+        function takeDamage(amount) {
+            if (isDead) return;
+            playerHealth -= amount;
+            invulnerableTime = 1.0; 
+            updateHealthUI();
+            
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = 0.5;
+            setTimeout(() => { overlay.style.opacity = 0; }, 200);
+            
+            if (playerHealth <= 0) {
+                isDead = true;
+                controls.unlock();
+                document.getElementById('respawn-screen').style.display = 'flex';
+                document.getElementById('blocker').style.display = 'none';
+            }
+        }
+
+        function respawn() {
+            playerHealth = 10;
+            updateHealthUI();
+            controls.getObject().position.set(0, 15, 0); 
+            velocity.set(0,0,0);
+            document.getElementById('respawn-screen').style.display = 'none';
+            isDead = false;
+            document.getElementById('blocker').style.display = 'flex';
+        }
+
+        function spawnZombies(count) {
+            const playerPos = controls.getObject().position;
+            for(let i=0; i<count; i++) {
+                let px, pz;
+                let valid = false;
+                for(let attempt=0; attempt<10; attempt++){
+                    px = playerPos.x + (Math.random() - 0.5) * 40;
+                    pz = playerPos.z + (Math.random() - 0.5) * 40;
+                    if (!isProtectedArea(px, pz)) {
+                        valid = true; break;
+                    }
+                }
+                if (!valid) continue; 
+
+                const zombie = new THREE.Mesh(zombieGeo, zombieMats);
+                zombie.position.set(px, 30, pz); 
+                
+                zombie.userData = {
+                    type: 'zombie',
+                    velocity: new THREE.Vector3(0,0,0),
+                    speed: 4.5,
+                    grounded: false
+                };
+                
+                scene.add(zombie);
+                zombies.push(zombie);
+                objects.push(zombie);
+            }
+        }
+
+        function despawnZombies() {
+            [...zombies].forEach(z => removeBlock(z));
+        }
+
+        function spawnAnimals(count) {
+            for(let i=0; i<count; i++) {
+                let px = (Math.random() - 0.5) * 40;
+                let pz = (Math.random() - 0.5) * 40;
+                
+                const pig = new THREE.Mesh(pigGeo, pigMats);
+                pig.position.set(px, 30, pz); 
+                
+                pig.userData = {
+                    type: 'animal',
+                    velocity: new THREE.Vector3(0,0,0),
+                    speed: 2.0,
+                    moveDir: new THREE.Vector3(),
+                    timer: 0
+                };
+                
+                scene.add(pig);
+                animals.push(pig);
+                objects.push(pig);
+            }
+        }
+
+        function onKeyDown(event) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
+                event.preventDefault();
+            }
+
+            const k = event.key.toLowerCase();
+            const c = event.code;
+
+            if (c === 'KeyW' || k === 'w' || c === 'ArrowUp' || k === 'arrowup') moveForward = true;
+            if (c === 'KeyA' || k === 'a' || c === 'ArrowLeft' || k === 'arrowleft') moveLeft = true;
+            if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = true;
+            if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = true;
+            
+            // 修正：調高跳躍力 (從 8.0 提高到 10.0，讓跳上階梯更容易)
+            if (c === 'Space' || k === ' ') { if (canJump) velocity.y += 10.0; canJump = false; }
+            
+            if (c === 'Digit1' || k === '1') selectSlot(1, 'wood');
+            if (c === 'Digit2' || k === '2') selectSlot(2, 'dirt');
+            if (c === 'Digit3' || k === '3') selectSlot(3, 'leaves');
+            if (c === 'Digit4' || k === '4') selectSlot(4, 'grass');
+        }
+
+        function selectSlot(num, type) {
+            currentBlockType = type;
+            document.querySelectorAll('.slot').forEach(el => el.classList.remove('active'));
+            document.getElementById(`slot-${num}`).classList.add('active');
+        }
+
+        function onKeyUp(event) {
+            const k = event.key.toLowerCase();
+            const c = event.code;
+
+            if (c === 'KeyW' || k === 'w' || c === 'ArrowUp' || k === 'arrowup') moveForward = false;
+            if (c === 'KeyA' || k === 'a' || c === 'ArrowLeft' || k === 'arrowleft') moveLeft = false;
+            if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = false;
+            if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = false;
+        }
+
+        function onDocumentMouseDown(event) {
+            if (!controls.isLocked || isDead) return;
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(objects, false);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                if (intersect.distance > 6) return; 
+
+                if (event.button === 0) {
+                    removeBlock(intersect.object); 
+                } else if (event.button === 2) {
+                    if (intersect.object.userData.type === 'zombie' || intersect.object.userData.type === 'animal') return;
+                    
+                    const voxelPos = intersect.point.clone().add(intersect.face.normal.clone().multiplyScalar(0.5));
+                    const rx = Math.round(voxelPos.x);
+                    const ry = Math.round(voxelPos.y);
+                    const rz = Math.round(voxelPos.z);
+
+                    const playerPos = controls.getObject().position;
+                    const dist = Math.hypot(rx - playerPos.x, rz - playerPos.z);
+                    if (dist < 0.8 && ry >= playerPos.y - 1.5 && ry <= playerPos.y + 0.5) return;
+
+                    let placeMat = materials[currentBlockType];
+                    addBlock(rx, ry, rz, placeMat); 
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function checkPlayerCollision(x, y, z) {
+            const minX = x - 0.25; const maxX = x + 0.25;
+            const minY = y - 1.6;  const maxY = y - 0.2; 
+            const minZ = z - 0.25; const maxZ = z + 0.25;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function checkAnimalCollision(x, y, z) {
+            const minX = x - 0.3; const maxX = x + 0.3;
+            const minY = y - 0.35; const maxY = y + 0.35;
+            const minZ = z - 0.3; const maxZ = z + 0.3;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function checkZombieCollision(x, y, z) {
+            const minX = x - 0.4; const maxX = x + 0.4;
+            const minY = y - 0.9; const maxY = y + 0.9;
+            const minZ = z - 0.4; const maxZ = z + 0.4;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = Math.min((time - prevTime) / 1000, 0.1); 
+
+            if (invulnerableTime > 0) invulnerableTime -= delta;
+
+            if (!isDead) {
+                timeRemaining -= delta;
+                if (timeRemaining <= 0) {
+                    isDay = !isDay;
+                    if (isDay) dayCount++; 
+                    updateDayCounter();
+                    
+                    timeRemaining = isDay ? 120 : 180;
+                    if (!isDay) spawnZombies(5 + Math.floor(dayCount / 2)); 
+                    else despawnZombies();
+                }
+                
+                let currentSeconds = Math.ceil(timeRemaining);
+                if (currentSeconds !== lastDisplayedSeconds) {
+                    lastDisplayedSeconds = currentSeconds;
+                    const mins = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
+                    const secs = (currentSeconds % 60).toString().padStart(2, '0');
+                    document.getElementById('timer-display').innerText = `${isDay ? '☀️ 白天' : '🌙 夜晚'} ${mins}:${secs}`;
+                }
+                
+                scene.background.lerp(isDay ? dayColor : nightColor, 0.01);
+                scene.fog.color.lerp(isDay ? dayColor : nightColor, 0.01);
+                hemisphereLight.intensity = THREE.MathUtils.lerp(hemisphereLight.intensity, isDay ? 0.75 : 0.1, 0.01);
+                dirLight.intensity = THREE.MathUtils.lerp(dirLight.intensity, isDay ? 0.6 : 0.05, 0.01);
+            }
+
+            if (controls.isLocked === true && !isDead) {
+                const pos = controls.getObject().position;
+                
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+                velocity.y -= 9.8 * 3.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                const speed = 40.0;
+                if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+                const camRight = new THREE.Vector3();
+                camRight.setFromMatrixColumn(camera.matrix, 0); 
+                
+                const camForward = new THREE.Vector3();
+                camForward.crossVectors(camera.up, camRight);   
+
+                let moveX = -velocity.x * delta;
+                let moveZ = -velocity.z * delta;
+
+                let nextX = pos.x + (camRight.x * moveX) + (camForward.x * moveZ);
+                let nextY = pos.y + velocity.y * delta;
+                let nextZ = pos.z + (camRight.z * moveX) + (camForward.z * moveZ);
+
+                canJump = false;
+                if (velocity.y < 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
+                    velocity.y = 0;
+                    let bMinY = Math.round(nextY - 1.6); 
+                    // 修正：加上 0.01 讓角色站立時微懸空，避免腳底磨到地板而卡住無法走路
+                    pos.y = bMinY + 2.11; 
+                    canJump = true;
+                } else if (velocity.y > 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
+                    velocity.y = 0; 
+                } else {
+                    pos.y = nextY;
+                }
+
+                if (!checkPlayerCollision(nextX, pos.y, pos.z)) {
+                    pos.x = nextX;
+                } else {
+                    velocity.x = 0;
+                }
+
+                if (!checkPlayerCollision(pos.x, pos.y, nextZ)) {
+                    pos.z = nextZ;
+                } else {
+                    velocity.z = 0;
+                }
+
+                if (pos.y < -20) takeDamage(10); 
+            }
+
+            const playerPos = controls.getObject().position;
+            zombies.forEach(zombie => {
+                zombie.userData.velocity.y -= 9.8 * 2.0 * delta;
+                
+                const dir = new THREE.Vector3();
+                dir.subVectors(playerPos, zombie.position);
+                dir.y = 0;
+                
+                if (dir.length() > 0.5) {
+                    dir.normalize();
+                    zombie.lookAt(playerPos.x, zombie.position.y, playerPos.z);
+                    
+                    let nextX = zombie.position.x + dir.x * zombie.userData.speed * delta;
+                    let nextZ = zombie.position.z + dir.z * zombie.userData.speed * delta;
+                    let nextY = zombie.position.y + zombie.userData.velocity.y * delta;
+                    
+                    zombie.userData.grounded = false;
+                    
+                    if (zombie.userData.velocity.y < 0 && checkZombieCollision(zombie.position.x, nextY, zombie.position.z)) {
+                        zombie.userData.velocity.y = 0;
+                        let bMinY = Math.round(nextY - 0.9);
+                        zombie.position.y = bMinY + 1.41; // 修正懸空問題
+                        zombie.userData.grounded = true;
+                        
+                        let probeX = zombie.position.x + dir.x * 1.0;
+                        let probeZ = zombie.position.z + dir.z * 1.0;
+                        if (checkZombieCollision(probeX, zombie.position.y, probeZ) && !isProtectedArea(probeX, probeZ)) {
+                            zombie.userData.velocity.y = 7.5; 
+                        }
+                    } else {
+                        zombie.position.y = nextY;
+                    }
+                    
+                    let canMoveX = !checkZombieCollision(nextX, zombie.position.y, zombie.position.z) && !isProtectedArea(nextX, zombie.position.z);
+                    let canMoveZ = !checkZombieCollision(zombie.position.x, zombie.position.y, nextZ) && !isProtectedArea(zombie.position.x, nextZ);
+
+                    if (canMoveX) zombie.position.x = nextX;
+                    if (canMoveZ) zombie.position.z = nextZ;
+                }
+                
+                if (invulnerableTime <= 0 && !isDead) {
+                    const distXZ = Math.hypot(zombie.position.x - playerPos.x, zombie.position.z - playerPos.z);
+                    const distY = Math.abs(zombie.position.y - (playerPos.y - 0.8));
+                    if (distXZ < 1.0 && distY < 1.5) takeDamage(1); 
+                }
+                
+                if(zombie.position.y < -30) {
+                    zombie.position.set(0, 20, 0);
+                    zombie.userData.velocity.y = 0;
+                }
+            });
+
+            if (animals.length < 8 && Math.random() < 0.01) {
+                spawnAnimals(1);
+            }
+
+            animals.forEach(animal => {
+                animal.userData.velocity.y -= 9.8 * 2.0 * delta;
+                animal.userData.timer -= delta;
+
+                if (animal.userData.timer <= 0) {
+                    animal.userData.moveDir.set((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize();
+                    if (Math.random() < 0.4) animal.userData.moveDir.set(0, 0, 0); 
+                    animal.userData.timer = 1.0 + Math.random() * 3.0; 
+                    
+                    if (animal.userData.moveDir.length() > 0 && Math.random() < 0.2) {
+                        animal.userData.velocity.y = 6.0;
+                    }
+                }
+
+                if (animal.userData.moveDir.length() > 0.1) {
+                    const targetX = animal.position.x + animal.userData.moveDir.x;
+                    const targetZ = animal.position.z + animal.userData.moveDir.z;
+                    animal.lookAt(targetX, animal.position.y, targetZ);
+                }
+
+                let nextX = animal.position.x + animal.userData.moveDir.x * animal.userData.speed * delta;
+                let nextZ = animal.position.z + animal.userData.moveDir.z * animal.userData.speed * delta;
+                let nextY = animal.position.y + animal.userData.velocity.y * delta;
+
+                if (animal.userData.velocity.y < 0 && checkAnimalCollision(animal.position.x, nextY, animal.position.z)) {
+                    animal.userData.velocity.y = 0;
+                    let bMinY = Math.round(nextY - 0.35);
+                    animal.position.y = bMinY + 0.86; // 修正懸空問題
+                    
+                    let probeX = animal.position.x + animal.userData.moveDir.x * 0.8;
+                    let probeZ = animal.position.z + animal.userData.moveDir.z * 0.8;
+                    if (checkAnimalCollision(probeX, animal.position.y, probeZ)) {
+                        animal.userData.velocity.y = 6.0; 
+                    }
+                } else {
+                    animal.position.y = nextY;
+                }
+
+                if (!checkAnimalCollision(nextX, animal.position.y, animal.position.z)) {
+                    animal.position.x = nextX;
+                }
+                if (!checkAnimalCollision(animal.position.x, animal.position.y, nextZ)) {
+                    animal.position.z = nextZ;
+                }
+
+                if(animal.position.y < -30) {
+                    animal.position.set(0, 20, 0);
+                    animal.userData.velocity.y = 0;
+                }
+            });
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+    </script>
+</body>
+</html> <!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麥塊 - 殭屍生存模式</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255, 255, 255, 0.8);
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        #blocker {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 20;
+        }
+        #blocker h1 { font-size: 3rem; margin-bottom: 10px; text-shadow: 2px 2px 0 #000; }
+        #blocker p { font-size: 1.2rem; text-shadow: 1px 1px 0 #000; }
+
+        /* UI 層與受傷特效 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: white;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+        }
+        #timer-display { font-size: 28px; margin-bottom: 5px; }
+        #health-bar { font-size: 24px; }
+        
+        /* 右上角天數計數器 */
+        #top-right-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            text-align: right;
+            color: white;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+        }
+        #day-counter { font-size: 32px; }
+
+        /* 快捷列 (Hotbar) */
+        #hotbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .slot {
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #555;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 5px;
+            text-shadow: 1px 1px 0 #000;
+        }
+        .slot.active {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.4);
+            transform: scale(1.1);
+        }
+        .slot-num { color: #ccc; font-size: 11px; margin-top: 5px; }
+
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #ff0000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            z-index: 15;
+        }
+        
+        #respawn-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(100, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 30;
+        }
+        #respawn-screen h1 { font-size: 4rem; color: #ff5555; text-shadow: 3px 3px 0 #000; margin-bottom: 20px; }
+        
+        .btn {
+            background: #4CAF50; color: white; border: 2px solid #fff;
+            padding: 15px 30px; font-size: 24px; cursor: pointer;
+            border-radius: 8px; font-weight: bold; transition: 0.2s;
+        }
+        .btn:hover { background: #45a049; transform: scale(1.05); }
+
+    </style>
+    
+    <!-- 引入 Three.js 與 PointerLockControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+    <div id="damage-overlay"></div>
+    
+    <div id="ui-layer">
+        <div id="timer-display">☀️ 白天 02:00</div>
+        <div id="health-bar">❤️❤️❤️❤️❤️❤️❤️❤️❤️❤️</div>
+    </div>
+
+    <!-- 新增：右上角天數計數器 -->
+    <div id="top-right-ui">
+        <div id="day-counter">第 1 天</div>
+    </div>
+
+    <!-- 新增：方塊快捷列 -->
+    <div id="hotbar">
+        <div class="slot active" id="slot-1" data-type="wood">🪵木頭<div class="slot-num">[1]</div></div>
+        <div class="slot" id="slot-2" data-type="dirt">🟫泥土<div class="slot-num">[2]</div></div>
+        <div class="slot" id="slot-3" data-type="leaves">🌿樹葉<div class="slot-num">[3]</div></div>
+        <div class="slot" id="slot-4" data-type="grass">🟩草地<div class="slot-num">[4]</div></div>
+    </div>
+
+    <div id="blocker">
+        <h1>麥塊</h1>
+        <p>點擊畫面開始遊戲</p>
+        <p>W A S D 或 方向鍵 移動 | 空白鍵 跳躍 | 左鍵 破壞/攻擊 | 右鍵 放置方塊</p>
+        <p>數字鍵 1-4 切換方塊</p>
+    </div>
+
+    <div id="respawn-screen">
+        <h1>你死掉了！</h1>
+        <button class="btn" id="btn-respawn">重新復活</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        let camera, scene, renderer, controls;
+        let raycaster;
+        const objects = []; 
+        const blockMap = new Map(); 
+        const houseCenters = []; 
+        
+        // 效能優化：共用幾何體
+        const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+        const zombieGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+        const pigGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7); 
+        
+        // --- 遊戲系統變數 (日夜、生命、殭屍) ---
+        let hemisphereLight, dirLight;
+        let isDay = true;
+        let timeRemaining = 120; // 白天 120 秒，晚上 180 秒
+        let lastDisplayedSeconds = -1;
+        let playerHealth = 10;
+        let isDead = false;
+        let invulnerableTime = 0;
+        let dayCount = 1; // 記錄第幾天
+        
+        const zombies = [];
+        let zombieMats;
+        const animals = []; 
+        let pigMats; 
+        let dayColor = new THREE.Color(0x87CEEB);
+        let nightColor = new THREE.Color(0x050515);
+
+        // 物理與移動狀態
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        let moveForward = false; let moveBackward = false;
+        let moveLeft = false; let moveRight = false;
+        let canJump = false;
+        let prevTime = performance.now();
+
+        // 材質與當前選擇的方塊
+        const materials = {};
+        let currentBlockType = 'wood'; 
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = dayColor; 
+            scene.fog = new THREE.Fog(dayColor, 20, 60);
+
+            hemisphereLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+            hemisphereLight.position.set(0.5, 1, 0.75);
+            scene.add(hemisphereLight);
+
+            dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(20, 40, 20);
+            scene.add(dirLight);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            controls = new PointerLockControls(camera, document.body);
+            controls.getObject().position.set(0, 10, 0); // 出生點
+            scene.add(controls.getObject());
+
+            const blocker = document.getElementById('blocker');
+            blocker.addEventListener('click', () => { if(!isDead) controls.lock(); });
+            controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+            controls.addEventListener('unlock', () => { if(!isDead) blocker.style.display = 'flex'; });
+
+            document.getElementById('btn-respawn').addEventListener('click', respawn);
+            updateHealthUI();
+            updateDayCounter();
+
+            setupMaterials();
+            generateWorld();
+            buildHouse(0, 0); // 在原點蓋一棟房子作為安全區
+
+            raycaster = new THREE.Raycaster();
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousedown', onDocumentMouseDown);
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function setupMaterials() {
+            const createCanvasTexture = (renderFn) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 16; canvas.height = 16;
+                const ctx = canvas.getContext('2d');
+                renderFn(ctx);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                return tex;
+            };
+
+            const noise = (ctx, baseColor, vary) => {
+                for(let i=0; i<16; i++) {
+                    for(let j=0; j<16; j++) {
+                        let c = baseColor.map(v => Math.max(0, Math.min(255, v + (Math.random()-0.5)*vary)));
+                        ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+                        ctx.fillRect(i, j, 1, 1);
+                    }
+                }
+            };
+
+            const texDirt = createCanvasTexture(ctx => noise(ctx, [92, 64, 51], 20));
+            const texGrassTop = createCanvasTexture(ctx => noise(ctx, [76, 154, 42], 20));
+            const texGrassSide = createCanvasTexture(ctx => {
+                noise(ctx, [92, 64, 51], 20); 
+                ctx.fillStyle = '#4C9A2A'; 
+                ctx.fillRect(0,0,16,4);
+                for(let i=0;i<16;i++) if(Math.random()>0.5) ctx.fillRect(i,4,1,1);
+            });
+            const texWood = createCanvasTexture(ctx => {
+                ctx.fillStyle='#8B5A2B'; ctx.fillRect(0,0,16,16);
+                ctx.fillStyle='#6B3A0B'; ctx.fillRect(0,4,16,1); ctx.fillRect(0,10,16,1);
+            });
+            const texLeaves = createCanvasTexture(ctx => {
+                noise(ctx, [34, 139, 34], 30);
+            });
+            const texZombieFace = createCanvasTexture(ctx => {
+                noise(ctx, [30, 89, 40], 10);
+                ctx.fillStyle = '#000000'; ctx.fillRect(2,4,4,4); ctx.fillRect(10,4,4,4); ctx.fillRect(4,10,8,2);
+            });
+            const texZombieSkin = createCanvasTexture(ctx => noise(ctx, [30, 89, 40], 10));
+            zombieMats = [
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
+                new THREE.MeshLambertMaterial({ map: texZombieFace, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 })
+            ];
+
+            const texPigFace = createCanvasTexture(ctx => {
+                noise(ctx, [255, 182, 193], 10);
+                ctx.fillStyle = '#000000'; ctx.fillRect(4,6,2,2); ctx.fillRect(10,6,2,2); 
+                ctx.fillStyle = '#ff88aa'; ctx.fillRect(6,10,4,3); 
+            });
+            const texPigSkin = createCanvasTexture(ctx => noise(ctx, [255, 182, 193], 10));
+            pigMats = [
+                new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
+                new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
+                new THREE.MeshLambertMaterial({ map: texPigFace }), new THREE.MeshLambertMaterial({ map: texPigSkin })
+            ];
+
+            materials.dirt = new THREE.MeshLambertMaterial({ map: texDirt });
+            materials.grass = [
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassTop }),
+                materials.dirt,
+                new THREE.MeshLambertMaterial({ map: texGrassSide }),
+                new THREE.MeshLambertMaterial({ map: texGrassSide })
+            ];
+            materials.wood = new THREE.MeshLambertMaterial({ map: texWood });
+            materials.leaves = new THREE.MeshLambertMaterial({ map: texLeaves, transparent: true, opacity: 0.9 });
+        }
+
+        function addBlock(x, y, z, mat, type='block') {
+            const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+            if (blockMap.has(key)) return; 
+            
+            const mesh = new THREE.Mesh(blockGeo, mat);
+            mesh.position.set(x, y, z);
+            mesh.userData.type = type;
+            mesh.name = key;
+            scene.add(mesh);
+            objects.push(mesh);
+            blockMap.set(key, mesh);
+        }
+
+        function removeBlock(mesh) {
+            scene.remove(mesh);
+            const idx = objects.indexOf(mesh);
+            if(idx > -1) objects.splice(idx, 1);
+            if(mesh.name) blockMap.delete(mesh.name);
+            
+            if (mesh.userData.type === 'zombie') {
+                const zIdx = zombies.indexOf(mesh);
+                if(zIdx > -1) zombies.splice(zIdx, 1);
+            } else if (mesh.userData.type === 'animal') {
+                const aIdx = animals.indexOf(mesh);
+                if(aIdx > -1) animals.splice(aIdx, 1);
+            }
+        }
+
+        function generateWorld() {
+            for (let x = -30; x <= 30; x++) {
+                for (let z = -30; z <= 30; z++) {
+                    let h = Math.floor(Math.sin(x/8)*3 + Math.cos(z/8)*3);
+                    
+                    for (let y = h - 1; y <= h; y++) {
+                        let mat = (y === h && y >= 0) ? materials.grass : materials.dirt;
+                        addBlock(x, y, z, mat);
+                    }
+
+                    if (h >= 0 && Math.random() < 0.03 && (Math.abs(x) > 6 || Math.abs(z) > 6)) {
+                        generateTree(x, h + 1, z);
+                    }
+                }
+            }
+
+            let housesBuilt = 1; 
+            let attempts = 0;
+            while (housesBuilt < 5 && attempts < 200) {
+                let cx = Math.floor((Math.random() - 0.5) * 46); 
+                let cz = Math.floor((Math.random() - 0.5) * 46);
+                let baseY = Math.floor(Math.sin(cx/8)*3 + Math.cos(cz/8)*3);
+                
+                if (baseY >= 0 && Math.hypot(cx, cz) > 8) {
+                    buildHouse(cx, cz);
+                    housesBuilt++;
+                }
+                attempts++;
+            }
+            spawnAnimals(8); 
+        }
+
+        function generateTree(x, baseY, z) {
+            for(let y=0; y<4; y++) addBlock(x, baseY+y, z, materials.wood);
+            for(let lx = x-2; lx <= x+2; lx++) {
+                for(let lz = z-2; lz <= z+2; lz++) {
+                    for(let ly = baseY+2; ly <= baseY+4; ly++) {
+                        if (lx===x && lz===z && ly<=baseY+3) continue; 
+                        if (Math.abs(lx-x)===2 && Math.abs(lz-z)===2 && Math.random()>0.5) continue; 
+                        addBlock(lx, ly, lz, materials.leaves);
+                    }
+                }
+            }
+            addBlock(x, baseY+5, z, materials.leaves);
+        }
+
+        function buildHouse(cx, cz) {
+            houseCenters.push({x: cx, z: cz});
+            let baseY = Math.floor(Math.sin(cx/8)*3 + Math.cos(cz/8)*3) + 1;
+            
+            for(let x = cx - 3; x <= cx + 3; x++) {
+                for(let z = cz - 3; z <= cz + 3; z++) {
+                    for(let y = baseY; y <= baseY + 6; y++) {
+                        const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+                        if (blockMap.has(key)) removeBlock(blockMap.get(key));
+                    }
+                    const floorKey = `${Math.round(x)},${Math.round(baseY-1)},${Math.round(z)}`;
+                    if (!blockMap.has(floorKey)) {
+                        addBlock(x, baseY - 1, z, materials.dirt);
+                    }
+                }
+            }
+
+            for(let x = cx - 3; x <= cx + 3; x++) {
+                for(let z = cz - 3; z <= cz + 3; z++) {
+                    addBlock(x, baseY, z, materials.wood); 
+                    if (x === cx - 3 || x === cx + 3 || z === cz - 3 || z === cz + 3) {
+                        addBlock(x, baseY+1, z, materials.wood); 
+                        addBlock(x, baseY+2, z, materials.wood);
+                        addBlock(x, baseY+3, z, materials.wood);
+                    }
+                    addBlock(x, baseY+4, z, materials.wood); 
+                }
+            }
+            const doorKey1 = `${cx},${baseY+1},${cz+3}`;
+            const doorKey2 = `${cx},${baseY+2},${cz+3}`;
+            if(blockMap.has(doorKey1)) removeBlock(blockMap.get(doorKey1));
+            if(blockMap.has(doorKey2)) removeBlock(blockMap.get(doorKey2));
+
+            // 門口的小台階（稍微加寬，更好走）
+            addBlock(cx, baseY, cz + 4, materials.wood);
+            addBlock(cx + 1, baseY, cz + 4, materials.wood);
+            addBlock(cx - 1, baseY, cz + 4, materials.wood);
+
+            // 側邊實心雙寬樓梯（旁邊多一格，且下方填滿更像真實樓梯）
+            for (let step = 0; step <= 4; step++) {
+                let zPos = cz + 3 - step;
+                let stepY = baseY + step;
+                
+                // 為了不讓樓梯懸空，把該階梯下方到地面的方塊都填滿
+                for (let y = baseY; y <= stepY; y++) {
+                    addBlock(cx + 4, y, zPos, materials.wood); // 原本的樓梯位置
+                    addBlock(cx + 5, y, zPos, materials.wood); // 旁邊再多一格
+                }
+            }
+        }
+
+        function isProtectedArea(x, z) {
+            for (const house of houseCenters) {
+                if (Math.abs(x - house.x) <= 6 && Math.abs(z - house.z) <= 6) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateHealthUI() {
+            let hearts = "";
+            for(let i=0; i<10; i++) {
+                if (i < playerHealth) hearts += "❤️";
+                else hearts += "🖤";
+            }
+            document.getElementById('health-bar').innerText = hearts;
+        }
+
+        function updateDayCounter() {
+            document.getElementById('day-counter').innerText = isDay ? `第 ${dayCount} 天` : `第 ${dayCount} 晚`;
+        }
+
+        function takeDamage(amount) {
+            if (isDead) return;
+            playerHealth -= amount;
+            invulnerableTime = 1.0; 
+            updateHealthUI();
+            
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = 0.5;
+            setTimeout(() => { overlay.style.opacity = 0; }, 200);
+            
+            if (playerHealth <= 0) {
+                isDead = true;
+                controls.unlock();
+                document.getElementById('respawn-screen').style.display = 'flex';
+                document.getElementById('blocker').style.display = 'none';
+            }
+        }
+
+        function respawn() {
+            playerHealth = 10;
+            updateHealthUI();
+            controls.getObject().position.set(0, 15, 0); 
+            velocity.set(0,0,0);
+            document.getElementById('respawn-screen').style.display = 'none';
+            isDead = false;
+            document.getElementById('blocker').style.display = 'flex';
+        }
+
+        function spawnZombies(count) {
+            const playerPos = controls.getObject().position;
+            for(let i=0; i<count; i++) {
+                let px, pz;
+                let valid = false;
+                for(let attempt=0; attempt<10; attempt++){
+                    px = playerPos.x + (Math.random() - 0.5) * 40;
+                    pz = playerPos.z + (Math.random() - 0.5) * 40;
+                    if (!isProtectedArea(px, pz)) {
+                        valid = true; break;
+                    }
+                }
+                if (!valid) continue; 
+
+                const zombie = new THREE.Mesh(zombieGeo, zombieMats);
+                zombie.position.set(px, 30, pz); 
+                
+                zombie.userData = {
+                    type: 'zombie',
+                    velocity: new THREE.Vector3(0,0,0),
+                    speed: 4.5,
+                    grounded: false
+                };
+                
+                scene.add(zombie);
+                zombies.push(zombie);
+                objects.push(zombie);
+            }
+        }
+
+        function despawnZombies() {
+            [...zombies].forEach(z => removeBlock(z));
+        }
+
+        function spawnAnimals(count) {
+            for(let i=0; i<count; i++) {
+                let px = (Math.random() - 0.5) * 40;
+                let pz = (Math.random() - 0.5) * 40;
+                
+                const pig = new THREE.Mesh(pigGeo, pigMats);
+                pig.position.set(px, 30, pz); 
+                
+                pig.userData = {
+                    type: 'animal',
+                    velocity: new THREE.Vector3(0,0,0),
+                    speed: 2.0,
+                    moveDir: new THREE.Vector3(),
+                    timer: 0
+                };
+                
+                scene.add(pig);
+                animals.push(pig);
+                objects.push(pig);
+            }
+        }
+
+        function onKeyDown(event) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
+                event.preventDefault();
+            }
+
+            const k = event.key.toLowerCase();
+            const c = event.code;
+
+            if (c === 'KeyW' || k === 'w' || c === 'ArrowUp' || k === 'arrowup') moveForward = true;
+            if (c === 'KeyA' || k === 'a' || c === 'ArrowLeft' || k === 'arrowleft') moveLeft = true;
+            if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = true;
+            if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = true;
+            
+            // 修正：調高跳躍力 (從 8.0 提高到 10.0，讓跳上階梯更容易)
+            if (c === 'Space' || k === ' ') { if (canJump) velocity.y += 10.0; canJump = false; }
+            
+            if (c === 'Digit1' || k === '1') selectSlot(1, 'wood');
+            if (c === 'Digit2' || k === '2') selectSlot(2, 'dirt');
+            if (c === 'Digit3' || k === '3') selectSlot(3, 'leaves');
+            if (c === 'Digit4' || k === '4') selectSlot(4, 'grass');
+        }
+
+        function selectSlot(num, type) {
+            currentBlockType = type;
+            document.querySelectorAll('.slot').forEach(el => el.classList.remove('active'));
+            document.getElementById(`slot-${num}`).classList.add('active');
+        }
+
+        function onKeyUp(event) {
+            const k = event.key.toLowerCase();
+            const c = event.code;
+
+            if (c === 'KeyW' || k === 'w' || c === 'ArrowUp' || k === 'arrowup') moveForward = false;
+            if (c === 'KeyA' || k === 'a' || c === 'ArrowLeft' || k === 'arrowleft') moveLeft = false;
+            if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = false;
+            if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = false;
+        }
+
+        function onDocumentMouseDown(event) {
+            if (!controls.isLocked || isDead) return;
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(objects, false);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                if (intersect.distance > 6) return; 
+
+                if (event.button === 0) {
+                    removeBlock(intersect.object); 
+                } else if (event.button === 2) {
+                    if (intersect.object.userData.type === 'zombie' || intersect.object.userData.type === 'animal') return;
+                    
+                    const voxelPos = intersect.point.clone().add(intersect.face.normal.clone().multiplyScalar(0.5));
+                    const rx = Math.round(voxelPos.x);
+                    const ry = Math.round(voxelPos.y);
+                    const rz = Math.round(voxelPos.z);
+
+                    const playerPos = controls.getObject().position;
+                    const dist = Math.hypot(rx - playerPos.x, rz - playerPos.z);
+                    if (dist < 0.8 && ry >= playerPos.y - 1.5 && ry <= playerPos.y + 0.5) return;
+
+                    let placeMat = materials[currentBlockType];
+                    addBlock(rx, ry, rz, placeMat); 
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function checkPlayerCollision(x, y, z) {
+            const minX = x - 0.25; const maxX = x + 0.25;
+            const minY = y - 1.6;  const maxY = y - 0.2; 
+            const minZ = z - 0.25; const maxZ = z + 0.25;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function checkAnimalCollision(x, y, z) {
+            const minX = x - 0.3; const maxX = x + 0.3;
+            const minY = y - 0.35; const maxY = y + 0.35;
+            const minZ = z - 0.3; const maxZ = z + 0.3;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function checkZombieCollision(x, y, z) {
+            const minX = x - 0.4; const maxX = x + 0.4;
+            const minY = y - 0.9; const maxY = y + 0.9;
+            const minZ = z - 0.4; const maxZ = z + 0.4;
+
+            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
+            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
+            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
+
+            for (let bx = bMinX; bx <= bMaxX; bx++) {
+                for (let by = bMinY; by <= bMaxY; by++) {
+                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
+                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = Math.min((time - prevTime) / 1000, 0.1); 
+
+            if (invulnerableTime > 0) invulnerableTime -= delta;
+
+            if (!isDead) {
+                timeRemaining -= delta;
+                if (timeRemaining <= 0) {
+                    isDay = !isDay;
+                    if (isDay) dayCount++; 
+                    updateDayCounter();
+                    
+                    timeRemaining = isDay ? 120 : 180;
+                    if (!isDay) spawnZombies(5 + Math.floor(dayCount / 2)); 
+                    else despawnZombies();
+                }
+                
+                let currentSeconds = Math.ceil(timeRemaining);
+                if (currentSeconds !== lastDisplayedSeconds) {
+                    lastDisplayedSeconds = currentSeconds;
+                    const mins = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
+                    const secs = (currentSeconds % 60).toString().padStart(2, '0');
+                    document.getElementById('timer-display').innerText = `${isDay ? '☀️ 白天' : '🌙 夜晚'} ${mins}:${secs}`;
+                }
+                
+                scene.background.lerp(isDay ? dayColor : nightColor, 0.01);
+                scene.fog.color.lerp(isDay ? dayColor : nightColor, 0.01);
+                hemisphereLight.intensity = THREE.MathUtils.lerp(hemisphereLight.intensity, isDay ? 0.75 : 0.1, 0.01);
+                dirLight.intensity = THREE.MathUtils.lerp(dirLight.intensity, isDay ? 0.6 : 0.05, 0.01);
+            }
+
+            if (controls.isLocked === true && !isDead) {
+                const pos = controls.getObject().position;
+                
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+                velocity.y -= 9.8 * 3.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                const speed = 40.0;
+                if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+                const camRight = new THREE.Vector3();
+                camRight.setFromMatrixColumn(camera.matrix, 0); 
+                
+                const camForward = new THREE.Vector3();
+                camForward.crossVectors(camera.up, camRight);   
+
+                let moveX = -velocity.x * delta;
+                let moveZ = -velocity.z * delta;
+
+                let nextX = pos.x + (camRight.x * moveX) + (camForward.x * moveZ);
+                let nextY = pos.y + velocity.y * delta;
+                let nextZ = pos.z + (camRight.z * moveX) + (camForward.z * moveZ);
+
+                canJump = false;
+                if (velocity.y < 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
+                    velocity.y = 0;
+                    let bMinY = Math.round(nextY - 1.6); 
+                    // 修正：加上 0.01 讓角色站立時微懸空，避免腳底磨到地板而卡住無法走路
+                    pos.y = bMinY + 2.11; 
+                    canJump = true;
+                } else if (velocity.y > 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
+                    velocity.y = 0; 
+                } else {
+                    pos.y = nextY;
+                }
+
+                if (!checkPlayerCollision(nextX, pos.y, pos.z)) {
+                    pos.x = nextX;
+                } else {
+                    velocity.x = 0;
+                }
+
+                if (!checkPlayerCollision(pos.x, pos.y, nextZ)) {
+                    pos.z = nextZ;
+                } else {
+                    velocity.z = 0;
+                }
+
+                if (pos.y < -20) takeDamage(10); 
+            }
+
+            const playerPos = controls.getObject().position;
+            zombies.forEach(zombie => {
+                zombie.userData.velocity.y -= 9.8 * 2.0 * delta;
+                
+                const dir = new THREE.Vector3();
+                dir.subVectors(playerPos, zombie.position);
+                dir.y = 0;
+                
+                if (dir.length() > 0.5) {
+                    dir.normalize();
+                    zombie.lookAt(playerPos.x, zombie.position.y, playerPos.z);
+                    
+                    let nextX = zombie.position.x + dir.x * zombie.userData.speed * delta;
+                    let nextZ = zombie.position.z + dir.z * zombie.userData.speed * delta;
+                    let nextY = zombie.position.y + zombie.userData.velocity.y * delta;
+                    
+                    zombie.userData.grounded = false;
+                    
+                    if (zombie.userData.velocity.y < 0 && checkZombieCollision(zombie.position.x, nextY, zombie.position.z)) {
+                        zombie.userData.velocity.y = 0;
+                        let bMinY = Math.round(nextY - 0.9);
+                        zombie.position.y = bMinY + 1.41; // 修正懸空問題
+                        zombie.userData.grounded = true;
+                        
+                        let probeX = zombie.position.x + dir.x * 1.0;
+                        let probeZ = zombie.position.z + dir.z * 1.0;
+                        if (checkZombieCollision(probeX, zombie.position.y, probeZ) && !isProtectedArea(probeX, probeZ)) {
+                            zombie.userData.velocity.y = 7.5; 
+                        }
+                    } else {
+                        zombie.position.y = nextY;
+                    }
+                    
+                    let canMoveX = !checkZombieCollision(nextX, zombie.position.y, zombie.position.z) && !isProtectedArea(nextX, zombie.position.z);
+                    let canMoveZ = !checkZombieCollision(zombie.position.x, zombie.position.y, nextZ) && !isProtectedArea(zombie.position.x, nextZ);
+
+                    if (canMoveX) zombie.position.x = nextX;
+                    if (canMoveZ) zombie.position.z = nextZ;
+                }
+                
+                if (invulnerableTime <= 0 && !isDead) {
+                    const distXZ = Math.hypot(zombie.position.x - playerPos.x, zombie.position.z - playerPos.z);
+                    const distY = Math.abs(zombie.position.y - (playerPos.y - 0.8));
+                    if (distXZ < 1.0 && distY < 1.5) takeDamage(1); 
+                }
+                
+                if(zombie.position.y < -30) {
+                    zombie.position.set(0, 20, 0);
+                    zombie.userData.velocity.y = 0;
+                }
+            });
+
+            if (animals.length < 8 && Math.random() < 0.01) {
+                spawnAnimals(1);
+            }
+
+            animals.forEach(animal => {
+                animal.userData.velocity.y -= 9.8 * 2.0 * delta;
+                animal.userData.timer -= delta;
+
+                if (animal.userData.timer <= 0) {
+                    animal.userData.moveDir.set((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize();
+                    if (Math.random() < 0.4) animal.userData.moveDir.set(0, 0, 0); 
+                    animal.userData.timer = 1.0 + Math.random() * 3.0; 
+                    
+                    if (animal.userData.moveDir.length() > 0 && Math.random() < 0.2) {
+                        animal.userData.velocity.y = 6.0;
+                    }
+                }
+
+                if (animal.userData.moveDir.length() > 0.1) {
+                    const targetX = animal.position.x + animal.userData.moveDir.x;
+                    const targetZ = animal.position.z + animal.userData.moveDir.z;
+                    animal.lookAt(targetX, animal.position.y, targetZ);
+                }
+
+                let nextX = animal.position.x + animal.userData.moveDir.x * animal.userData.speed * delta;
+                let nextZ = animal.position.z + animal.userData.moveDir.z * animal.userData.speed * delta;
+                let nextY = animal.position.y + animal.userData.velocity.y * delta;
+
+                if (animal.userData.velocity.y < 0 && checkAnimalCollision(animal.position.x, nextY, animal.position.z)) {
+                    animal.userData.velocity.y = 0;
+                    let bMinY = Math.round(nextY - 0.35);
+                    animal.position.y = bMinY + 0.86; // 修正懸空問題
+                    
+                    let probeX = animal.position.x + animal.userData.moveDir.x * 0.8;
+                    let probeZ = animal.position.z + animal.userData.moveDir.z * 0.8;
+                    if (checkAnimalCollision(probeX, animal.position.y, probeZ)) {
+                        animal.userData.velocity.y = 6.0; 
+                    }
+                } else {
+                    animal.position.y = nextY;
+                }
+
+                if (!checkAnimalCollision(nextX, animal.position.y, animal.position.z)) {
+                    animal.position.x = nextX;
+                }
+                if (!checkAnimalCollision(animal.position.x, animal.position.y, nextZ)) {
+                    animal.position.z = nextZ;
+                }
+
+                if(animal.position.y < -30) {
+                    animal.position.set(0, 20, 0);
+                    animal.userData.velocity.y = 0;
+                }
+            });
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+    </script>
+</body>
+</html>
