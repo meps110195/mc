@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>賣雞塊 - 殭屍生存模式</title>
     
-    <!-- 新增：避免部署到 GitHub Pages 時出現 favicon 找不到的錯誤警告 -->
     <link rel="icon" href="data:,">
     
     <style>
@@ -25,21 +24,53 @@
         #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
         #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
 
+        /* 密碼鎖介面 */
+        #password-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #87CEEB;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .password-box {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 2px solid #555;
+        }
+        #password-input {
+            font-size: 24px;
+            padding: 10px;
+            width: 200px;
+            text-align: center;
+            border-radius: 8px;
+            border: none;
+            margin: 20px 0;
+            outline: none;
+            font-family: monospace;
+        }
+
         #blocker {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             background-color: rgba(0,0,0,0.5);
-            display: flex;
+            display: none; /* 初始隱藏，解鎖後顯示 */
             flex-direction: column;
             align-items: center;
             justify-content: center;
             color: white;
             z-index: 20;
+            text-align: center;
         }
         #blocker h1 { font-size: 3rem; margin-bottom: 10px; text-shadow: 2px 2px 0 #000; }
-        #blocker p { font-size: 1.2rem; text-shadow: 1px 1px 0 #000; }
+        #blocker p { font-size: 1.2rem; text-shadow: 1px 1px 0 #000; margin: 5px 0; }
 
-        /* UI 層與受傷特效 */
         #ui-layer {
             position: absolute;
             top: 20px;
@@ -52,8 +83,8 @@
         }
         #timer-display { font-size: 28px; margin-bottom: 5px; }
         #health-bar { font-size: 24px; }
+        #hunger-bar { font-size: 24px; margin-top: 5px; }
         
-        /* 右上角天數計數器 */
         #top-right-ui {
             position: absolute;
             top: 20px;
@@ -66,7 +97,6 @@
         }
         #day-counter { font-size: 32px; }
 
-        /* 快捷列 (Hotbar) */
         #hotbar {
             position: absolute;
             bottom: 20px;
@@ -78,6 +108,8 @@
             background-color: rgba(0, 0, 0, 0.4);
             padding: 10px;
             border-radius: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
         }
         .slot {
             width: 60px;
@@ -93,6 +125,7 @@
             font-weight: bold;
             border-radius: 5px;
             text-shadow: 1px 1px 0 #000;
+            cursor: pointer;
         }
         .slot.active {
             border-color: #4CAF50;
@@ -120,7 +153,7 @@
             align-items: center;
             justify-content: center;
             color: white;
-            z-index: 30;
+            z-index: 50;
         }
         #respawn-screen h1 { font-size: 4rem; color: #ff5555; text-shadow: 3px 3px 0 #000; margin-bottom: 20px; }
         
@@ -133,32 +166,43 @@
 
     </style>
     
-    <!-- 引入 Three.js 與 PointerLockControls -->
     <script type="importmap">
         {
             "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
             }
         }
     </script>
 </head>
 <body>
 
+    <!-- 密碼鎖介面 -->
+    <div id="password-screen">
+        <div class="password-box">
+            <h1 style="margin-top: 0; text-shadow: 2px 2px 0 #000;">🔒 遊戲已上鎖</h1>
+            <p>請輸入密碼以進入遊戲</p>
+            <input type="password" id="password-input" placeholder="請輸入密碼" maxlength="4">
+            <br>
+            <button class="btn" id="password-btn">解鎖</button>
+            <p id="password-error" style="color: #ff5555; display: none; margin-top: 15px; font-weight: bold;">❌ 密碼錯誤！</p>
+        </div>
+    </div>
+
     <div id="crosshair"></div>
     <div id="damage-overlay"></div>
     
     <div id="ui-layer">
-        <div id="timer-display">☀️ 白天 02:00</div>
+        <div id="timer-display">☀️ 白天 01:00</div>
         <div id="health-bar">❤️❤️❤️❤️❤️❤️❤️❤️❤️❤️</div>
+        <div id="hunger-bar">🍖🍖🍖🍖🍖🍖🍖🍖🍖🍖</div>
     </div>
 
-    <!-- 新增：右上角天數計數器 -->
     <div id="top-right-ui">
         <div id="day-counter">第 1 天</div>
     </div>
 
-    <!-- 新增：方塊快捷列 -->
+    <!-- 快捷列 -->
     <div id="hotbar">
         <div class="slot active" id="slot-1" data-type="wood">🪵木頭<div class="slot-num">[1]</div></div>
         <div class="slot" id="slot-2" data-type="dirt">🟫泥土<div class="slot-num">[2]</div></div>
@@ -166,13 +210,16 @@
         <div class="slot" id="slot-4" data-type="grass">🟩草地<div class="slot-num">[4]</div></div>
         <div class="slot" id="slot-5" data-type="torch">🔥火把<div class="slot-num">[5]</div></div>
         <div class="slot" id="slot-6" data-type="glass">🧊玻璃<div class="slot-num">[6]</div></div>
+        <div class="slot" id="slot-7" data-type="door">🚪木門<div class="slot-num">[7]</div></div>
+        <div class="slot" id="slot-8" data-type="pig">🐷小豬<div class="slot-num">[8]</div></div>
+        <div class="slot" id="slot-9" data-type="fence">🚧柵欄<div class="slot-num">[9]</div></div>
+        <div class="slot" id="slot-0" data-type="beef" style="display: none;">🥩牛肉*0<div class="slot-num">[0]</div></div>
     </div>
 
     <div id="blocker">
         <h1>賣雞塊</h1>
         <p>點擊畫面開始遊戲</p>
-        <p>W A S D 或 方向鍵 移動 | 空白鍵 跳躍 | 左鍵 破壞/攻擊 | 右鍵 放置方塊</p>
-        <p>數字鍵 1-6 切換方塊</p>
+        <p>W A S D 鍵移動 | 空白鍵 跳躍 | 左鍵 破壞/殺牛 | 右鍵 放置/開關門/吃牛肉 | 1~9, 0 切換方塊</p>
     </div>
 
     <div id="respawn-screen">
@@ -181,6 +228,7 @@
     </div>
 
     <script type="module">
+        // 為了相容性，這裡直接使用全域變數，但依然保留 module 寫法
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
@@ -188,39 +236,42 @@
         let raycaster;
         const objects = []; 
         const blockMap = new Map(); 
-        const houseCenters = []; 
         
-        // 效能優化：共用幾何體
         const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+        const doorGeo = new THREE.BoxGeometry(1, 1, 0.15); 
         const zombieGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-        const pigGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7); 
+        const animalGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8); 
         
-        // --- 遊戲系統變數 (日夜、生命、殭屍) ---
         let hemisphereLight, dirLight;
         let isDay = true;
-        let timeRemaining = 120; // 白天 120 秒，晚上 180 秒
+        
+        let timeRemaining = 60; 
         let lastDisplayedSeconds = -1;
         let playerHealth = 10;
+        let playerHunger = 10; 
+        let beefCount = 0; // 背包裡的牛肉數量
+
+        let hungerDropTimer = 0; 
+        let starvationTimer = 0; 
         let isDead = false;
         let invulnerableTime = 0;
-        let dayCount = 1; // 記錄第幾天
+        let dayCount = 1; 
         
         const zombies = [];
         let zombieMats;
         const animals = []; 
-        let pigMats; 
+        let pigMats, cowMats; 
         let dayColor = new THREE.Color(0x87CEEB);
         let nightColor = new THREE.Color(0x050515);
 
-        // 物理與移動狀態
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
         let moveForward = false; let moveBackward = false;
         let moveLeft = false; let moveRight = false;
+        let jumpPressed = false; // 新增：偵測空白鍵是否按住
         let canJump = false;
         let prevTime = performance.now();
 
-        // 材質與當前選擇的方塊
         const materials = {};
         let currentBlockType = 'wood'; 
 
@@ -248,21 +299,56 @@
             document.body.appendChild(renderer.domElement);
 
             controls = new PointerLockControls(camera, document.body);
-            controls.getObject().position.set(0, 10, 0); // 出生點
+            controls.getObject().position.set(0, 10, 0); 
             scene.add(controls.getObject());
 
             const blocker = document.getElementById('blocker');
-            blocker.addEventListener('click', () => { if(!isDead) controls.lock(); });
-            controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
-            controls.addEventListener('unlock', () => { if(!isDead) blocker.style.display = 'flex'; });
+
+            // --- 密碼鎖邏輯 ---
+            const pwdScreen = document.getElementById('password-screen');
+            const pwdInput = document.getElementById('password-input');
+            const pwdBtn = document.getElementById('password-btn');
+            const pwdError = document.getElementById('password-error');
+
+            function checkPassword() {
+                if (pwdInput.value === '6767') {
+                    pwdScreen.style.display = 'none'; 
+                    blocker.style.display = 'flex';   
+                } else {
+                    pwdError.style.display = 'block'; 
+                    pwdInput.value = '';
+                    pwdInput.focus();
+                }
+            }
+
+            pwdBtn.addEventListener('click', checkPassword);
+            pwdInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') checkPassword();
+            });
+            pwdInput.focus(); 
+            // --- 密碼鎖邏輯結束 ---
+
+            blocker.addEventListener('click', () => { 
+                if(!isDead) controls.lock(); 
+            });
+            
+            controls.addEventListener('lock', () => { 
+                blocker.style.display = 'none'; 
+            });
+            controls.addEventListener('unlock', () => { 
+                if(!isDead) {
+                    blocker.style.display = 'flex'; 
+                }
+            });
 
             document.getElementById('btn-respawn').addEventListener('click', respawn);
-            updateHealthUI();
-            updateDayCounter();
-
+            
             setupMaterials();
             generateWorld();
-            buildHouse(0, 0); // 在原點蓋一棟房子作為安全區
+            updateHealthUI();
+            updateHungerUI();
+            updateBeefSlot();
+            updateDayCounter();
 
             raycaster = new THREE.Raycaster();
             document.addEventListener('keydown', onKeyDown);
@@ -305,9 +391,7 @@
                 ctx.fillStyle='#8B5A2B'; ctx.fillRect(0,0,16,16);
                 ctx.fillStyle='#6B3A0B'; ctx.fillRect(0,4,16,1); ctx.fillRect(0,10,16,1);
             });
-            const texLeaves = createCanvasTexture(ctx => {
-                noise(ctx, [34, 139, 34], 30);
-            });
+            const texLeaves = createCanvasTexture(ctx => noise(ctx, [34, 139, 34], 30));
             const texGlass = createCanvasTexture(ctx => {
                 ctx.fillStyle = 'rgba(150, 200, 255, 0.3)'; ctx.fillRect(0,0,16,16);
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; ctx.lineWidth = 2; ctx.strokeRect(1,1,14,14);
@@ -318,17 +402,37 @@
                 ctx.fillStyle = '#FFAA00'; ctx.fillRect(2,2,12,12);
                 ctx.fillStyle = '#FFFF66'; ctx.fillRect(4,4,8,8);
             });
+            const texDoor = createCanvasTexture(ctx => {
+                ctx.fillStyle = '#8B5A2B'; ctx.fillRect(0,0,16,16); 
+                ctx.fillStyle = '#5C3A18'; ctx.fillRect(1,1,14,14); 
+                ctx.fillStyle = '#8B5A2B'; ctx.fillRect(2,2,12,5);  
+                ctx.fillRect(2,9,12,5); 
+                ctx.fillStyle = '#DAA520'; ctx.fillRect(12,7,2,2);  
+            });
+            const texFence = createCanvasTexture(ctx => {
+                ctx.clearRect(0, 0, 16, 16);
+                ctx.fillStyle = '#8B5A2B'; 
+                ctx.fillRect(2, 0, 4, 16); ctx.fillRect(10, 0, 4, 16);
+                ctx.fillRect(0, 3, 16, 3); ctx.fillRect(0, 10, 16, 3);
+            });
+
+            // 殭屍材質
             const texZombieFace = createCanvasTexture(ctx => {
                 noise(ctx, [30, 89, 40], 10);
                 ctx.fillStyle = '#000000'; ctx.fillRect(2,4,4,4); ctx.fillRect(10,4,4,4); ctx.fillRect(4,10,8,2);
             });
             const texZombieSkin = createCanvasTexture(ctx => noise(ctx, [30, 89, 40], 10));
+            const glowColor = 0x22aa22; 
             zombieMats = [
-                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
-                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 }),
-                new THREE.MeshLambertMaterial({ map: texZombieFace, emissive: 0x112211 }), new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: 0x112211 })
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: glowColor, emissiveIntensity: 0.6 }), 
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: glowColor, emissiveIntensity: 0.6 }),
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: glowColor, emissiveIntensity: 0.6 }), 
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: glowColor, emissiveIntensity: 0.6 }),
+                new THREE.MeshLambertMaterial({ map: texZombieFace, emissive: glowColor, emissiveIntensity: 0.8 }), 
+                new THREE.MeshLambertMaterial({ map: texZombieSkin, emissive: glowColor, emissiveIntensity: 0.6 })
             ];
 
+            // 小豬材質 (第8格)
             const texPigFace = createCanvasTexture(ctx => {
                 noise(ctx, [255, 182, 193], 10);
                 ctx.fillStyle = '#000000'; ctx.fillRect(4,6,2,2); ctx.fillRect(10,6,2,2); 
@@ -339,6 +443,23 @@
                 new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
                 new THREE.MeshLambertMaterial({ map: texPigSkin }), new THREE.MeshLambertMaterial({ map: texPigSkin }),
                 new THREE.MeshLambertMaterial({ map: texPigFace }), new THREE.MeshLambertMaterial({ map: texPigSkin })
+            ];
+
+            // 乳牛材質 (殺來吃肉)
+            const texCowFace = createCanvasTexture(ctx => {
+                ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,16,16);
+                ctx.fillStyle = '#000000'; ctx.fillRect(2,2,4,4); ctx.fillRect(10,8,5,5);
+                ctx.fillStyle = '#000000'; ctx.fillRect(4,6,2,2); ctx.fillRect(10,6,2,2);
+                ctx.fillStyle = '#FFB6C1'; ctx.fillRect(5,10,6,4);
+            });
+            const texCowSkin = createCanvasTexture(ctx => {
+                ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,16,16);
+                ctx.fillStyle = '#000000'; ctx.fillRect(0,0,6,5); ctx.fillRect(10,2,6,7);
+            });
+            cowMats = [
+                new THREE.MeshLambertMaterial({ map: texCowSkin }), new THREE.MeshLambertMaterial({ map: texCowSkin }),
+                new THREE.MeshLambertMaterial({ map: texCowSkin }), new THREE.MeshLambertMaterial({ map: texCowSkin }),
+                new THREE.MeshLambertMaterial({ map: texCowFace }), new THREE.MeshLambertMaterial({ map: texCowSkin })
             ];
 
             materials.dirt = new THREE.MeshLambertMaterial({ map: texDirt });
@@ -354,18 +475,21 @@
             materials.leaves = new THREE.MeshLambertMaterial({ map: texLeaves, transparent: true, opacity: 0.9 });
             materials.glass = new THREE.MeshLambertMaterial({ map: texGlass, transparent: true, opacity: 0.8 });
             materials.torch = new THREE.MeshLambertMaterial({ map: texTorch, emissive: 0xffaa00, emissiveIntensity: 0.6 });
+            materials.door = new THREE.MeshLambertMaterial({ map: texDoor });
+            materials.fence = new THREE.MeshLambertMaterial({ map: texFence, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
         }
 
         function addBlock(x, y, z, mat, type='block') {
             const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
             if (blockMap.has(key)) return; 
             
-            const mesh = new THREE.Mesh(blockGeo, mat);
+            const geo = (type === 'door') ? doorGeo : blockGeo;
+            const mesh = new THREE.Mesh(geo, mat);
             mesh.position.set(x, y, z);
             mesh.userData.type = type;
+            if (type === 'door') mesh.userData.isOpen = false;
             mesh.name = key;
             
-            // 如果放置的是火把，新增點光源照亮周圍
             if (type === 'torch') {
                 const light = new THREE.PointLight(0xffaa00, 1.5, 12);
                 light.position.set(x, y, z);
@@ -380,7 +504,7 @@
 
         function removeBlock(mesh) {
             scene.remove(mesh);
-            if (mesh.userData.light) scene.remove(mesh.userData.light); // 移除火把光源
+            if (mesh.userData.light) scene.remove(mesh.userData.light); 
             
             const idx = objects.indexOf(mesh);
             if(idx > -1) objects.splice(idx, 1);
@@ -389,13 +513,14 @@
             if (mesh.userData.type === 'zombie') {
                 const zIdx = zombies.indexOf(mesh);
                 if(zIdx > -1) zombies.splice(zIdx, 1);
-            } else if (mesh.userData.type === 'animal') {
+            } else if (mesh.userData.type === 'pig' || mesh.userData.type === 'cow') {
                 const aIdx = animals.indexOf(mesh);
                 if(aIdx > -1) animals.splice(aIdx, 1);
             }
         }
 
         function generateWorld() {
+            // 生成起伏地形
             for (let x = -30; x <= 30; x++) {
                 for (let z = -30; z <= 30; z++) {
                     let h = Math.floor(Math.sin(x/8)*3 + Math.cos(z/8)*3);
@@ -411,6 +536,7 @@
                 }
             }
 
+            // 生成木屋
             let housesBuilt = 1; 
             let attempts = 0;
             while (housesBuilt < 5 && attempts < 200) {
@@ -424,7 +550,11 @@
                 }
                 attempts++;
             }
-            spawnAnimals(8); 
+            spawnAnimals(8, 'cow'); // 初始生成乳牛
+            
+            // 找出一個安全的重生點
+            let spawnY = Math.floor(Math.sin(0)*3 + Math.cos(0)*3) + 2;
+            controls.getObject().position.set(0, Math.max(5, spawnY), 0);
         }
 
         function generateTree(x, baseY, z) {
@@ -442,7 +572,6 @@
         }
 
         function buildHouse(cx, cz) {
-            houseCenters.push({x: cx, z: cz});
             let baseY = Math.floor(Math.sin(cx/8)*3 + Math.cos(cz/8)*3) + 1;
             
             for(let x = cx - 3; x <= cx + 3; x++) {
@@ -452,9 +581,7 @@
                         if (blockMap.has(key)) removeBlock(blockMap.get(key));
                     }
                     const floorKey = `${Math.round(x)},${Math.round(baseY-1)},${Math.round(z)}`;
-                    if (!blockMap.has(floorKey)) {
-                        addBlock(x, baseY - 1, z, materials.dirt);
-                    }
+                    if (!blockMap.has(floorKey)) addBlock(x, baseY - 1, z, materials.dirt);
                 }
             }
 
@@ -474,46 +601,54 @@
             if(blockMap.has(doorKey1)) removeBlock(blockMap.get(doorKey1));
             if(blockMap.has(doorKey2)) removeBlock(blockMap.get(doorKey2));
 
-            // 門口的小台階（稍微加寬，更好走）
+            addBlock(cx, baseY+1, cz+3, materials.door, 'door');
+            addBlock(cx, baseY+2, cz+3, materials.door, 'door');
+
             addBlock(cx, baseY, cz + 4, materials.wood);
             addBlock(cx + 1, baseY, cz + 4, materials.wood);
             addBlock(cx - 1, baseY, cz + 4, materials.wood);
 
-            // 側邊實心雙寬樓梯（旁邊多一格，且下方填滿更像真實樓梯）
             for (let step = 0; step <= 4; step++) {
                 let zPos = cz + 3 - step;
                 let stepY = baseY + step;
-                
-                // 為了不讓樓梯懸空，把該階梯下方到地面的方塊都填滿
                 for (let y = baseY; y <= stepY; y++) {
-                    addBlock(cx + 4, y, zPos, materials.wood); // 原本的樓梯位置
-                    addBlock(cx + 5, y, zPos, materials.wood); // 旁邊再多一格
+                    addBlock(cx + 4, y, zPos, materials.wood); 
+                    addBlock(cx + 5, y, zPos, materials.wood); 
                 }
             }
         }
 
-        function isProtectedArea(x, z) {
-            for (const house of houseCenters) {
-                if (Math.abs(x - house.x) <= 6 && Math.abs(z - house.z) <= 6) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
+        // --- UI 更新區 ---
         function updateHealthUI() {
             let hearts = "";
-            for(let i=0; i<10; i++) {
-                if (i < playerHealth) hearts += "❤️";
-                else hearts += "🖤";
-            }
+            for(let i=0; i<10; i++) hearts += (i < playerHealth) ? "❤️" : "🖤";
             document.getElementById('health-bar').innerText = hearts;
+        }
+
+        function updateHungerUI() {
+            let meats = "";
+            for(let i=0; i<10; i++) meats += (i < playerHunger) ? "🍖" : "🦴";
+            document.getElementById('hunger-bar').innerText = meats;
+        }
+
+        function updateBeefSlot() {
+            const slot0 = document.getElementById('slot-0');
+            if (beefCount > 0) {
+                slot0.style.display = 'flex';
+                slot0.innerHTML = `🥩牛肉*${beefCount}<div class="slot-num">[0]</div>`;
+            } else {
+                slot0.style.display = 'none';
+                if (currentBlockType === 'beef') {
+                    selectSlot('1', 'wood'); // 牛肉吃完切換回木頭
+                }
+            }
         }
 
         function updateDayCounter() {
             document.getElementById('day-counter').innerText = isDay ? `第 ${dayCount} 天` : `第 ${dayCount} 晚`;
         }
 
+        // --- 生存系統 ---
         function takeDamage(amount) {
             if (isDead) return;
             playerHealth -= amount;
@@ -534,41 +669,61 @@
 
         function respawn() {
             playerHealth = 10;
+            playerHunger = 10;
+            beefCount = 0; // 死亡掉落全部牛肉
+            updateBeefSlot();
             updateHealthUI();
-            controls.getObject().position.set(0, 15, 0); 
+            updateHungerUI();
+            
+            let spawnY = Math.floor(Math.sin(0)*3 + Math.cos(0)*3) + 2;
+            controls.getObject().position.set(0, Math.max(5, spawnY), 0); 
             velocity.set(0,0,0);
+            
             document.getElementById('respawn-screen').style.display = 'none';
             isDead = false;
             document.getElementById('blocker').style.display = 'flex';
         }
 
+        function getValidSpawnPosition(playerPos) {
+            let attempts = 0;
+            while (attempts < 50) {
+                let distance = 10 + Math.random() * 20;
+                let angle = Math.random() * Math.PI * 2;
+                let px = Math.round(playerPos.x + Math.cos(angle) * distance);
+                let pz = Math.round(playerPos.z + Math.sin(angle) * distance);
+                
+                let highestY = -100;
+                let highestType = null;
+                for (let y = 20; y >= -5; y--) {
+                    let key = `${px},${y},${pz}`;
+                    if (blockMap.has(key)) {
+                        highestY = y;
+                        highestType = blockMap.get(key).userData.type;
+                        break;
+                    }
+                }
+                
+                if (highestY > -50 && highestType !== 'wood' && highestType !== 'leaves' && highestType !== 'glass') {
+                    return new THREE.Vector3(px, highestY + 1.5, pz);
+                }
+                attempts++;
+            }
+            return new THREE.Vector3(playerPos.x, 30, playerPos.z);
+        }
+
         function spawnZombies(count) {
             const playerPos = controls.getObject().position;
             for(let i=0; i<count; i++) {
-                let px, pz;
-                let valid = false;
-                for(let attempt=0; attempt<10; attempt++){
-                    px = playerPos.x + (Math.random() - 0.5) * 40;
-                    pz = playerPos.z + (Math.random() - 0.5) * 40;
-                    if (!isProtectedArea(px, pz)) {
-                        valid = true; break;
-                    }
-                }
-                if (!valid) continue; 
-
+                const spawnPos = getValidSpawnPosition(playerPos);
                 const zombie = new THREE.Mesh(zombieGeo, zombieMats);
-                zombie.position.set(px, 30, pz); 
+                zombie.position.copy(spawnPos); 
+                zombie.userData = { type: 'zombie', velocity: new THREE.Vector3(0,0,0), speed: 4.5, grounded: false };
                 
-                zombie.userData = {
-                    type: 'zombie',
-                    velocity: new THREE.Vector3(0,0,0),
-                    speed: 4.5,
-                    grounded: false
-                };
+                const glowLight = new THREE.PointLight(0x22ff22, 1.2, 8);
+                glowLight.position.set(0, 0, 0);
+                zombie.add(glowLight);
                 
-                scene.add(zombie);
-                zombies.push(zombie);
-                objects.push(zombie);
+                scene.add(zombie); zombies.push(zombie); objects.push(zombie);
             }
         }
 
@@ -576,32 +731,19 @@
             [...zombies].forEach(z => removeBlock(z));
         }
 
-        function spawnAnimals(count) {
+        function spawnAnimals(count, type) {
+            const mats = (type === 'cow') ? cowMats : pigMats;
             for(let i=0; i<count; i++) {
-                let px = (Math.random() - 0.5) * 40;
-                let pz = (Math.random() - 0.5) * 40;
-                
-                const pig = new THREE.Mesh(pigGeo, pigMats);
-                pig.position.set(px, 30, pz); 
-                
-                pig.userData = {
-                    type: 'animal',
-                    velocity: new THREE.Vector3(0,0,0),
-                    speed: 2.0,
-                    moveDir: new THREE.Vector3(),
-                    timer: 0
-                };
-                
-                scene.add(pig);
-                animals.push(pig);
-                objects.push(pig);
+                const spawnPos = getValidSpawnPosition(controls.getObject().position);
+                const animal = new THREE.Mesh(animalGeo, mats);
+                animal.position.copy(spawnPos); 
+                animal.userData = { type: type, velocity: new THREE.Vector3(0,0,0), speed: 1.5, moveDir: new THREE.Vector3(), timer: 0 };
+                scene.add(animal); animals.push(animal); objects.push(animal);
             }
         }
 
         function onKeyDown(event) {
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
-                event.preventDefault();
-            }
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) event.preventDefault();
 
             const k = event.key.toLowerCase();
             const c = event.code;
@@ -611,35 +753,49 @@
             if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = true;
             if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = true;
             
-            // 修正：調高跳躍力 (從 8.0 提高到 10.0，讓跳上階梯更容易)
-            if (c === 'Space' || k === ' ') { if (canJump) velocity.y += 10.0; canJump = false; }
+            if (c === 'Space' || k === ' ') jumpPressed = true; // 修改：標記空白鍵被按住
             
-            if (c === 'Digit1' || k === '1') selectSlot(1, 'wood');
-            if (c === 'Digit2' || k === '2') selectSlot(2, 'dirt');
-            if (c === 'Digit3' || k === '3') selectSlot(3, 'leaves');
-            if (c === 'Digit4' || k === '4') selectSlot(4, 'grass');
-            if (c === 'Digit5' || k === '5') selectSlot(5, 'torch');
-            if (c === 'Digit6' || k === '6') selectSlot(6, 'glass');
+            if (c.startsWith('Digit')) {
+                const n = c.replace('Digit', '');
+                const types = { '1': 'wood', '2': 'dirt', '3': 'leaves', '4': 'grass', '5': 'torch', '6': 'glass', '7': 'door', '8': 'pig', '9': 'fence' };
+                if(types[n]) selectSlot(n, types[n]);
+                // 如果按0且有牛肉，才能選擇牛肉
+                if(n === '0' && beefCount > 0) selectSlot('0', 'beef');
+            }
         }
 
         function selectSlot(num, type) {
             currentBlockType = type;
             document.querySelectorAll('.slot').forEach(el => el.classList.remove('active'));
-            document.getElementById(`slot-${num}`).classList.add('active');
+            const targetSlot = document.getElementById(`slot-${num}`);
+            if (targetSlot) targetSlot.classList.add('active');
         }
 
         function onKeyUp(event) {
             const k = event.key.toLowerCase();
             const c = event.code;
-
             if (c === 'KeyW' || k === 'w' || c === 'ArrowUp' || k === 'arrowup') moveForward = false;
             if (c === 'KeyA' || k === 'a' || c === 'ArrowLeft' || k === 'arrowleft') moveLeft = false;
             if (c === 'KeyS' || k === 's' || c === 'ArrowDown' || k === 'arrowdown') moveBackward = false;
             if (c === 'KeyD' || k === 'd' || c === 'ArrowRight' || k === 'arrowright') moveRight = false;
+            
+            if (c === 'Space' || k === ' ') jumpPressed = false; // 新增：放開空白鍵
         }
 
         function onDocumentMouseDown(event) {
             if (!controls.isLocked || isDead) return;
+
+            // --- 右鍵吃牛肉機制 ---
+            if (event.button === 2 && currentBlockType === 'beef') {
+                if (beefCount > 0 && playerHunger < 10) {
+                    beefCount--;
+                    playerHunger = Math.min(10, playerHunger + 1); // 修改：現在吃牛肉只會恢復 1 格飢餓度
+                    updateHungerUI();
+                    updateBeefSlot();
+                }
+                return; // 吃肉後不需要做其他的放置方塊動作
+            }
+            
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
             const intersects = raycaster.intersectObjects(objects, false);
 
@@ -647,22 +803,61 @@
                 const intersect = intersects[0];
                 if (intersect.distance > 6) return; 
 
-                if (event.button === 0) {
+                if (event.button === 0) { // 左鍵破壞或殺牛
+                    // 打牛拿到牛肉
+                    if (intersect.object.userData.type === 'cow') {
+                        removeBlock(intersect.object);
+                        beefCount++;
+                        updateBeefSlot();
+                        selectSlot(0, 'beef'); // 自動切換到牛肉
+                        return; 
+                    }
+                    if (intersect.object.userData.type === 'pig') {
+                        removeBlock(intersect.object); 
+                        return;
+                    }
                     removeBlock(intersect.object); 
-                } else if (event.button === 2) {
-                    if (intersect.object.userData.type === 'zombie' || intersect.object.userData.type === 'animal') return;
+                } else if (event.button === 2) { // 右鍵放置、開門
+                    if (intersect.object.userData.type === 'zombie' || intersect.object.userData.type === 'cow' || intersect.object.userData.type === 'pig') return;
                     
+                    if (intersect.object.userData.type === 'door') {
+                        const door = intersect.object;
+                        const toggleDoor = (target) => {
+                            target.userData.isOpen = !target.userData.isOpen;
+                            target.rotation.y = target.userData.isOpen ? Math.PI / 2 : 0;
+                        };
+                        
+                        const targetState = !door.userData.isOpen;
+                        const pos = door.name.split(',').map(Number);
+                        
+                        toggleDoor(door);
+                        
+                        const checkAndToggle = (dy) => {
+                            const other = blockMap.get(`${pos[0]},${pos[1]+dy},${pos[2]}`);
+                            if (other && other.userData.type === 'door' && other.userData.isOpen !== targetState) toggleDoor(other);
+                        };
+                        checkAndToggle(1);
+                        checkAndToggle(-1);
+                        return; 
+                    }
+
                     const voxelPos = intersect.point.clone().add(intersect.face.normal.clone().multiplyScalar(0.5));
-                    const rx = Math.round(voxelPos.x);
-                    const ry = Math.round(voxelPos.y);
-                    const rz = Math.round(voxelPos.z);
+                    const rx = Math.round(voxelPos.x); const ry = Math.round(voxelPos.y); const rz = Math.round(voxelPos.z);
 
                     const playerPos = controls.getObject().position;
                     const dist = Math.hypot(rx - playerPos.x, rz - playerPos.z);
                     if (dist < 0.8 && ry >= playerPos.y - 1.5 && ry <= playerPos.y + 0.5) return;
 
-                    let placeMat = materials[currentBlockType];
-                    addBlock(rx, ry, rz, placeMat, currentBlockType); 
+                    if (currentBlockType === 'pig') {
+                        // 放小豬
+                        const pig = new THREE.Mesh(animalGeo, pigMats);
+                        pig.position.set(rx, ry + 0.4, rz);
+                        pig.userData = { type: 'pig', velocity: new THREE.Vector3(0,0,0), speed: 1.5, moveDir: new THREE.Vector3(), timer: 0 };
+                        scene.add(pig); animals.push(pig); objects.push(pig);
+                    } else if (currentBlockType !== 'beef') {
+                        let placeMat = materials[currentBlockType];
+                        addBlock(rx, ry, rz, placeMat, currentBlockType); 
+                    }
                 }
             }
         }
@@ -678,52 +873,33 @@
             const minY = y - 1.6;  const maxY = y - 0.2; 
             const minZ = z - 0.25; const maxZ = z + 0.25;
 
-            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
-            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
-            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
-
-            for (let bx = bMinX; bx <= bMaxX; bx++) {
-                for (let by = bMinY; by <= bMaxY; by++) {
-                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
-                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+            for (let bx = Math.round(minX); bx <= Math.round(maxX); bx++) {
+                for (let by = Math.round(minY); by <= Math.round(maxY); by++) {
+                    for (let bz = Math.round(minZ); bz <= Math.round(maxZ); bz++) {
+                        const block = blockMap.get(`${bx},${by},${bz}`);
+                        if (block) {
+                            if (block.userData.type === 'door' && block.userData.isOpen) continue; 
+                            return true;
+                        }
                     }
                 }
             }
             return false;
         }
 
-        function checkAnimalCollision(x, y, z) {
-            const minX = x - 0.3; const maxX = x + 0.3;
-            const minY = y - 0.35; const maxY = y + 0.35;
-            const minZ = z - 0.3; const maxZ = z + 0.3;
+        function checkEntityCollision(x, y, z, rx, ry, rz) {
+            const minX = x - rx; const maxX = x + rx;
+            const minY = y - ry; const maxY = y + ry;
+            const minZ = z - rz; const maxZ = z + rz;
 
-            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
-            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
-            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
-
-            for (let bx = bMinX; bx <= bMaxX; bx++) {
-                for (let by = bMinY; by <= bMaxY; by++) {
-                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
-                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        function checkZombieCollision(x, y, z) {
-            const minX = x - 0.4; const maxX = x + 0.4;
-            const minY = y - 0.9; const maxY = y + 0.9;
-            const minZ = z - 0.4; const maxZ = z + 0.4;
-
-            const bMinX = Math.round(minX); const bMaxX = Math.round(maxX);
-            const bMinY = Math.round(minY); const bMaxY = Math.round(maxY);
-            const bMinZ = Math.round(minZ); const bMaxZ = Math.round(maxZ);
-
-            for (let bx = bMinX; bx <= bMaxX; bx++) {
-                for (let by = bMinY; by <= bMaxY; by++) {
-                    for (let bz = bMinZ; bz <= bMaxZ; bz++) {
-                        if (blockMap.has(`${bx},${by},${bz}`)) return true;
+            for (let bx = Math.round(minX); bx <= Math.round(maxX); bx++) {
+                for (let by = Math.round(minY); by <= Math.round(maxY); by++) {
+                    for (let bz = Math.round(minZ); bz <= Math.round(maxZ); bz++) {
+                        const block = blockMap.get(`${bx},${by},${bz}`);
+                        if (block) {
+                            if (block.userData.type === 'door' && block.userData.isOpen) continue; 
+                            return true; 
+                        }
                     }
                 }
             }
@@ -737,15 +913,35 @@
 
             if (invulnerableTime > 0) invulnerableTime -= delta;
 
-            if (!isDead) {
+            if (!isDead && controls.isLocked) {
+                // --- 飢餓度系統邏輯 ---
+                hungerDropTimer += delta;
+                if (hungerDropTimer >= 15) { // 每 15 秒扣除一格飢餓度
+                    hungerDropTimer = 0;
+                    if (playerHunger > 0) { playerHunger--; updateHungerUI(); }
+                }
+                
+                // 餓肚子持續扣血
+                if (playerHunger === 0) {
+                    starvationTimer += delta;
+                    if (starvationTimer >= 5) { starvationTimer = 0; takeDamage(1); }
+                } else {
+                    starvationTimer = 0;
+                }
+
+                // --- 晝夜循環邏輯 ---
                 timeRemaining -= delta;
                 if (timeRemaining <= 0) {
                     isDay = !isDay;
-                    if (isDay) dayCount++; 
+                    if (isDay) {
+                        dayCount++; 
+                        playerHealth = 10;
+                        updateHealthUI();
+                        spawnAnimals(4, 'cow'); // 每天白天補充乳牛
+                    } 
                     updateDayCounter();
-                    
-                    timeRemaining = isDay ? 120 : 180;
-                    if (!isDay) spawnZombies(5 + Math.floor(dayCount / 2)); 
+                    timeRemaining = isDay ? 60 : 35; // 將夜晚時間改為 35 秒
+                    if (!isDay) spawnZombies(8); 
                     else despawnZombies();
                 }
                 
@@ -759,13 +955,11 @@
                 
                 scene.background.lerp(isDay ? dayColor : nightColor, 0.01);
                 scene.fog.color.lerp(isDay ? dayColor : nightColor, 0.01);
-                hemisphereLight.intensity = THREE.MathUtils.lerp(hemisphereLight.intensity, isDay ? 0.75 : 0.1, 0.01);
-                dirLight.intensity = THREE.MathUtils.lerp(dirLight.intensity, isDay ? 0.6 : 0.05, 0.01);
-            }
+                hemisphereLight.intensity = THREE.MathUtils.lerp(hemisphereLight.intensity, isDay ? 0.75 : 0.05, 0.01);
+                dirLight.intensity = THREE.MathUtils.lerp(dirLight.intensity, isDay ? 0.6 : 0.02, 0.01);
 
-            if (controls.isLocked === true && !isDead) {
+                // --- 玩家移動 ---
                 const pos = controls.getObject().position;
-                
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
                 velocity.y -= 9.8 * 3.0 * delta;
@@ -778,14 +972,10 @@
                 if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
                 if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
 
-                const camRight = new THREE.Vector3();
-                camRight.setFromMatrixColumn(camera.matrix, 0); 
-                
-                const camForward = new THREE.Vector3();
-                camForward.crossVectors(camera.up, camRight);   
+                const camRight = new THREE.Vector3(); camRight.setFromMatrixColumn(camera.matrix, 0); 
+                const camForward = new THREE.Vector3(); camForward.crossVectors(camera.up, camRight);   
 
-                let moveX = -velocity.x * delta;
-                let moveZ = -velocity.z * delta;
+                let moveX = -velocity.x * delta; let moveZ = -velocity.z * delta;
 
                 let nextX = pos.x + (camRight.x * moveX) + (camForward.x * moveZ);
                 let nextY = pos.y + velocity.y * delta;
@@ -795,30 +985,25 @@
                 if (velocity.y < 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
                     velocity.y = 0;
                     let bMinY = Math.round(nextY - 1.6); 
-                    // 修正：加上 0.01 讓角色站立時微懸空，避免腳底磨到地板而卡住無法走路
                     pos.y = bMinY + 2.11; 
                     canJump = true;
                 } else if (velocity.y > 0 && checkPlayerCollision(pos.x, nextY, pos.z)) {
                     velocity.y = 0; 
-                } else {
-                    pos.y = nextY;
+                } else { pos.y = nextY; }
+                
+                // 新增：處理連續跳躍 (解決兩個鍵一起按卡卡的問題)
+                if (jumpPressed && canJump) {
+                    velocity.y += 10.0;
+                    canJump = false;
                 }
 
-                if (!checkPlayerCollision(nextX, pos.y, pos.z)) {
-                    pos.x = nextX;
-                } else {
-                    velocity.x = 0;
-                }
-
-                if (!checkPlayerCollision(pos.x, pos.y, nextZ)) {
-                    pos.z = nextZ;
-                } else {
-                    velocity.z = 0;
-                }
+                if (!checkPlayerCollision(nextX, pos.y, pos.z)) pos.x = nextX; else velocity.x = 0;
+                if (!checkPlayerCollision(pos.x, pos.y, nextZ)) pos.z = nextZ; else velocity.z = 0;
 
                 if (pos.y < -20) takeDamage(10); 
             }
 
+            // --- 殭屍與動物 AI ---
             const playerPos = controls.getObject().position;
             zombies.forEach(zombie => {
                 zombie.userData.velocity.y -= 9.8 * 2.0 * delta;
@@ -837,53 +1022,35 @@
                     
                     zombie.userData.grounded = false;
                     
-                    if (zombie.userData.velocity.y < 0 && checkZombieCollision(zombie.position.x, nextY, zombie.position.z)) {
+                    if (zombie.userData.velocity.y < 0 && checkEntityCollision(zombie.position.x, nextY, zombie.position.z, 0.4, 0.9, 0.4)) {
                         zombie.userData.velocity.y = 0;
-                        let bMinY = Math.round(nextY - 0.9);
-                        zombie.position.y = bMinY + 1.41; // 修正懸空問題
+                        zombie.position.y = Math.round(nextY - 0.9) + 1.41; 
                         zombie.userData.grounded = true;
                         
-                        let probeX = zombie.position.x + dir.x * 1.0;
-                        let probeZ = zombie.position.z + dir.z * 1.0;
-                        if (checkZombieCollision(probeX, zombie.position.y, probeZ) && !isProtectedArea(probeX, probeZ)) {
-                            zombie.userData.velocity.y = 7.5; 
+                        let probeX = zombie.position.x + dir.x * 1.0; let probeZ = zombie.position.z + dir.z * 1.0;
+                        if (checkEntityCollision(probeX, zombie.position.y, probeZ, 0.4, 0.9, 0.4)) {
+                            if (!checkEntityCollision(probeX, zombie.position.y + 1.5, probeZ, 0.4, 0.9, 0.4)) {
+                                zombie.userData.velocity.y = 7.5; 
+                            }
                         }
-                    } else {
-                        zombie.position.y = nextY;
-                    }
+                    } else { zombie.position.y = nextY; }
                     
-                    let canMoveX = !checkZombieCollision(nextX, zombie.position.y, zombie.position.z) && !isProtectedArea(nextX, zombie.position.z);
-                    let canMoveZ = !checkZombieCollision(zombie.position.x, zombie.position.y, nextZ) && !isProtectedArea(zombie.position.x, nextZ);
-
-                    if (canMoveX) zombie.position.x = nextX;
-                    if (canMoveZ) zombie.position.z = nextZ;
+                    if (!checkEntityCollision(nextX, zombie.position.y, zombie.position.z, 0.4, 0.9, 0.4)) zombie.position.x = nextX;
+                    if (!checkEntityCollision(zombie.position.x, zombie.position.y, nextZ, 0.4, 0.9, 0.4)) zombie.position.z = nextZ;
                 }
                 
                 if (invulnerableTime <= 0 && !isDead) {
                     const distXZ = Math.hypot(zombie.position.x - playerPos.x, zombie.position.z - playerPos.z);
                     const distY = Math.abs(zombie.position.y - (playerPos.y - 0.8));
                     
-                    // 加大殭屍攻擊判定範圍，並新增擊退效果
                     if (distXZ < 1.5 && distY < 2.0) { 
                         takeDamage(1); 
-                        
-                        // 擊退玩家
                         const pushDir = new THREE.Vector3().subVectors(playerPos, zombie.position).normalize();
-                        velocity.x += pushDir.x * 20;
-                        velocity.z += pushDir.z * 20;
-                        velocity.y += 6; // 稍微往上擊飛
+                        velocity.x += pushDir.x * 20; velocity.z += pushDir.z * 20; velocity.y += 6; 
                     }
                 }
-                
-                if(zombie.position.y < -30) {
-                    zombie.position.set(0, 20, 0);
-                    zombie.userData.velocity.y = 0;
-                }
+                if(zombie.position.y < -30) { zombie.position.set(0, 20, 0); zombie.userData.velocity.y = 0; }
             });
-
-            if (animals.length < 8 && Math.random() < 0.01) {
-                spawnAnimals(1);
-            }
 
             animals.forEach(animal => {
                 animal.userData.velocity.y -= 9.8 * 2.0 * delta;
@@ -893,53 +1060,38 @@
                     animal.userData.moveDir.set((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize();
                     if (Math.random() < 0.4) animal.userData.moveDir.set(0, 0, 0); 
                     animal.userData.timer = 1.0 + Math.random() * 3.0; 
-                    
-                    if (animal.userData.moveDir.length() > 0 && Math.random() < 0.2) {
-                        animal.userData.velocity.y = 6.0;
-                    }
+                    if (animal.userData.moveDir.length() > 0 && Math.random() < 0.2) animal.userData.velocity.y = 6.0;
                 }
 
                 if (animal.userData.moveDir.length() > 0.1) {
-                    const targetX = animal.position.x + animal.userData.moveDir.x;
-                    const targetZ = animal.position.z + animal.userData.moveDir.z;
-                    animal.lookAt(targetX, animal.position.y, targetZ);
+                    animal.lookAt(animal.position.x + animal.userData.moveDir.x, animal.position.y, animal.position.z + animal.userData.moveDir.z);
                 }
 
                 let nextX = animal.position.x + animal.userData.moveDir.x * animal.userData.speed * delta;
                 let nextZ = animal.position.z + animal.userData.moveDir.z * animal.userData.speed * delta;
                 let nextY = animal.position.y + animal.userData.velocity.y * delta;
 
-                if (animal.userData.velocity.y < 0 && checkAnimalCollision(animal.position.x, nextY, animal.position.z)) {
+                if (animal.userData.velocity.y < 0 && checkEntityCollision(animal.position.x, nextY, animal.position.z, 0.3, 0.35, 0.3)) {
                     animal.userData.velocity.y = 0;
-                    let bMinY = Math.round(nextY - 0.35);
-                    animal.position.y = bMinY + 0.86; // 修正懸空問題
+                    animal.position.y = Math.round(nextY - 0.35) + 0.86;
                     
-                    let probeX = animal.position.x + animal.userData.moveDir.x * 0.8;
-                    let probeZ = animal.position.z + animal.userData.moveDir.z * 0.8;
-                    if (checkAnimalCollision(probeX, animal.position.y, probeZ)) {
-                        animal.userData.velocity.y = 6.0; 
+                    let probeX = animal.position.x + animal.userData.moveDir.x * 0.8; let probeZ = animal.position.z + animal.userData.moveDir.z * 0.8;
+                    if (checkEntityCollision(probeX, animal.position.y, probeZ, 0.3, 0.35, 0.3)) {
+                        if (!checkEntityCollision(probeX, animal.position.y + 1.0, probeZ, 0.3, 0.35, 0.3)) {
+                            animal.userData.velocity.y = 6.0; 
+                        }
                     }
-                } else {
-                    animal.position.y = nextY;
-                }
+                } else { animal.position.y = nextY; }
 
-                if (!checkAnimalCollision(nextX, animal.position.y, animal.position.z)) {
-                    animal.position.x = nextX;
-                }
-                if (!checkAnimalCollision(animal.position.x, animal.position.y, nextZ)) {
-                    animal.position.z = nextZ;
-                }
+                if (!checkEntityCollision(nextX, animal.position.y, animal.position.z, 0.3, 0.35, 0.3)) animal.position.x = nextX;
+                if (!checkEntityCollision(animal.position.x, animal.position.y, nextZ, 0.3, 0.35, 0.3)) animal.position.z = nextZ;
 
-                if(animal.position.y < -30) {
-                    animal.position.set(0, 20, 0);
-                    animal.userData.velocity.y = 0;
-                }
+                if(animal.position.y < -30) { animal.position.set(0, 20, 0); animal.userData.velocity.y = 0; }
             });
 
             prevTime = time;
             renderer.render(scene, camera);
         }
-
     </script>
 </body>
 </html>
